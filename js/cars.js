@@ -159,6 +159,25 @@
       c.fillRect(x + 0.8, y + 0.8, w - 1.6, 1.0);
     },
 
+    // Par de retrovisores simétricos visíveis em linha reta e na perspectiva de curva para todos os carros
+    drawDualMirrors(c, tx, sx, turn, opts = {}) {
+      const dist = opts.dist || 29.0;
+      const w = opts.w || 5.2;
+      const h = opts.h || 3.6;
+      const y = opts.y || -9.5;
+      const r = opts.r !== undefined ? opts.r : 1.2;
+      const color = opts.color || '#1A202C';
+      const stemDist = opts.stemDist || (dist - 4.5);
+      const stemY = opts.stemY || (y + 2.5);
+
+      if (turn >= -0.15) {
+        this.drawMirror(c, tx - (dist + w) * sx, y, w * sx, h, r, color, tx - stemDist * sx, stemY, true);
+      }
+      if (turn <= 0.15) {
+        this.drawMirror(c, tx + dist * sx, y, w * sx, h, r, color, tx + stemDist * sx, stemY, false);
+      }
+    },
+
     drawRearTire(c, x, y, w, h) {
       const tg = c.createLinearGradient(x, y, x + w, y);
       tg.addColorStop(0, '#0B0E14');
@@ -253,9 +272,6 @@
       const frontNoseY = beltY - at * 0.5;
       const frontBotX = frontNoseX - side * 0.4;
       const frontBotY = botY - at * 0.8;
-
-      // 1. Roda dianteira discreta sob o para-lama dianteiro, tocando o asfalto (estilo Top Gear 1)
-      this.drawSideWheel(c, frontNoseX - side * 1.5, botY - 1.2, 2.3, 5.0, wheelStyle, side);
 
       if (isCurvedRoof) {
         // Para carros de silhueta curva (Peugeot 206 e HB20):
@@ -504,43 +520,58 @@
       opala:    { lx: 34.0, rx: 22.5, y: 19.8, w: 11.5, h: 4.4 },
       gol:      { lx: 31.8, rx: 22.0, y: 20.2, w: 9.8,  h: 3.6 },
       chevette: { lx: 31.0, rx: 21.8, y: 20.0, w: 9.2,  h: 4.0 },
-      brasilia: { lx: 31.5, rx: 22.0, y: 20.2, w: 9.4,  h: 3.8 }
+      brasilia: { lx: 31.5, rx: 22.0, y: 20.2, w: 9.4,  h: 3.8 },
+      corsa:    { lx: 31.0, rx: 21.5, y: 20.2, w: 9.6,  h: 3.8 },
+      celta:    { lx: 31.2, rx: 21.6, y: 20.2, w: 9.6,  h: 3.8 },
+      onix:     { lx: 32.5, rx: 22.0, y: 20.2, w: 10.5, h: 3.8 },
+      ka:       { lx: 30.0, rx: 20.8, y: 20.0, w: 9.2,  h: 4.0 },
+      palio:    { lx: 31.4, rx: 21.6, y: 20.2, w: 9.8,  h: 3.8 },
+      kwid:     { lx: 30.5, rx: 21.2, y: 19.8, w: 9.2,  h: 4.2 },
+      focus:    { lx: 33.2, rx: 22.4, y: 20.0, w: 10.8, h: 4.0 },
+      sandero:  { lx: 33.0, rx: 22.4, y: 20.2, w: 10.8, h: 3.8 },
+      mobi:     { lx: 30.8, rx: 21.4, y: 20.2, w: 9.4,  h: 3.8 },
+      santana:  { lx: 33.5, rx: 22.5, y: 20.2, w: 10.4, h: 3.8 },
+      rural:    { lx: 33.0, rx: 22.2, y: 19.4, w: 11.2, h: 4.8 },
+      kombi:    { lx: 31.8, rx: 21.8, y: 20.0, w: 10.0, h: 4.2 }
     },
 
     // Efeito discreto de movimento/rolamento APENAS na borracha dos pneus traseiros
     drawWheelMotionEffect(ctx, model, w, h, turn, phase, spd) {
       if (spd < 3) return; // Parado: sem efeito
 
-      const spec = this.TIRE_SPECS[model.id] || { lx: 31.0, rx: 21.5, y: 20.2, w: 9.8, h: 3.8 };
+      const spec = this.TIRE_SPECS[model.id] || { lx: 31.0, rx: 21.5, y: 20.8, w: 9.8, h: 3.2 };
       const sx = w / this.SPRITE_W;
       const sy = h / this.SPRITE_H;
       const at = Math.abs(turn);
       const rx = -turn * 4.6;
       const sxTurn = 1 - at * 0.05;
+      const safeY = Math.max(spec.y, 20.8);
+      const safeH = Math.min(spec.h, 3.0);
 
       const tires = [
-        { x: (rx - spec.lx * sxTurn) * sx, y: spec.y * sy, w: spec.w * sx, h: spec.h * sy },
-        { x: (rx + spec.rx * sxTurn) * sx, y: spec.y * sy, w: spec.w * sx, h: spec.h * sy }
+        { x: (rx - spec.lx * sxTurn) * sx + 1.2, y: safeY * sy, w: (spec.w - 2.4) * sx, h: safeH * sy },
+        { x: (rx + spec.rx * sxTurn) * sx + 1.2, y: safeY * sy, w: (spec.w - 2.4) * sx, h: safeH * sy }
       ];
 
       // Frequência de rolamento proporcional à velocidade
-      const stepH = Math.max(1.6, spec.h * sy * 0.45);
+      const stepH = Math.max(1.4, safeH * sy * 0.45);
       const rollOffset = ((phase * 8) % stepH + stepH) % stepH;
       const blurIntensity = Math.min(1.0, spd / 180);
-      const lineH = Math.max(0.6, spec.h * sy * 0.22);
+      const lineH = Math.max(0.5, safeH * sy * 0.22);
 
       for (let t = 0; t < tires.length; t++) {
         const tire = tires[t];
+        if (tire.w <= 0 || tire.h <= 0) continue;
         ctx.save();
         // Não aumenta o tamanho da roda e NUNCA invade o para-choque: clip exato na borracha inferior
         ctx.beginPath();
-        ctx.rect(tire.x + 0.6, tire.y, tire.w - 1.2, tire.h);
+        ctx.rect(tire.x, tire.y, tire.w, tire.h);
         ctx.clip();
 
         // 1. Ranhuras horizontais em rolamento sutil
         ctx.fillStyle = `rgba(6, 8, 12, ${0.45 + blurIntensity * 0.25})`;
         for (let gy = tire.y - stepH + rollOffset; gy < tire.y + tire.h + stepH; gy += stepH) {
-          ctx.fillRect(tire.x + 0.6, gy, tire.w - 1.2, lineH);
+          ctx.fillRect(tire.x, gy, tire.w, lineH);
         }
 
         // 2. Reflexo dinâmico de rotação da borracha (shimmer sutil)
@@ -550,7 +581,7 @@
         shineGrad.addColorStop(0.5, `rgba(255, 255, 255, ${(0.04 + blurIntensity * 0.06).toFixed(3)})`);
         shineGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = shineGrad;
-        ctx.fillRect(tire.x + 0.6, tire.y, tire.w - 1.2, tire.h);
+        ctx.fillRect(tire.x, tire.y, tire.w, tire.h);
 
         ctx.restore();
       }
@@ -1203,6 +1234,9 @@
           roofY: -23.5, beltY: -5.5, botY: 13.5, wheelStyle: 'alloy', mirrorColor: '#DCE5EE'
         });
 
+        // Retrovisores clássicos cromados nas portas
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 31.0, w: 5.2, h: 3.6, y: -9.5, r: 1.5, color: '#DCE5EE', stemDist: 26.5, stemY: -6.8 });
+
         // Vidro traseiro com caimento cupê suave e moldura cromada
         CarArt.drawGlassQuad(c, [
           [tx - 23.2 * sx, -20.5], [tx + 23.2 * sx, -20.5],
@@ -1314,6 +1348,9 @@
           roofY: -23.5, beltY: -6.0, botY: 13.8, wheelStyle: 'alloy', mirrorColor: '#1A202C'
         });
 
+        // Retrovisores esportivos quadrados pretos do Gol GTS
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 5.2, h: 3.6, y: -9.4, r: 1.0, color: '#141820', stemDist: 24.0, stemY: -6.8 });
+
         // Aerofólio de borracha preto envolvente icônico do Gol GTS (cobre topo e laterais da vigia)
         CarArt.roundRect(c, rx - 29.5 * sx, -8.6, 59.0 * sx, 3.8, 1.4, '#141820', out, 1.2);
         // Descidas laterais do aerofólio na coluna
@@ -1365,22 +1402,27 @@
         c.fillText('1.8S', rx + 15.5 * sx, 6.0);
 
         // Lanternas horizontais largas frisadas fumê (estilo clássico VW dos anos 90)
-        const drawGolLamp = (lx, isLeft) => {
+        const drawGolLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -32.2 * sx;
           CarArt.roundRect(c, lx, 0.2, 10.2 * sx, 8.5, 1.0, tailRed, out, 1.0);
           // Pisca âmbar
           c.fillStyle = '#D97706';
-          c.fillRect(isLeft ? lx + 0.8 : lx + 6.0 * sx, 1.0, 3.4 * sx, 2.8);
+          c.fillRect(lx + 0.8 * sx, 1.0, 3.4 * sx, 2.8);
           // Luz de ré branca
           c.fillStyle = '#E2E8F0';
-          c.fillRect(isLeft ? lx + 4.6 * sx : lx + 1.2 * sx, 5.0, 4.2 * sx, 2.6);
+          c.fillRect(lx + 4.6 * sx, 5.0, 4.4 * sx, 2.6);
           // Frisos horizontais pretos característicos do GTS
           for (let f = 1; f <= 3; f++) {
             CarArt.line(c, lx, 0.2 + f * 2.1, lx + 10.2 * sx, 0.2 + f * 2.1, '#0F131A', 0.9);
           }
           CarArt.drawTailGlow(c, lx + 5.1 * sx, 4.4, 5.2, 4.2, isBraking, isNight);
+          c.restore();
         };
-        drawGolLamp(rx - 32.2 * sx, true);
-        drawGolLamp(rx + 22.0 * sx, false);
+        drawGolLamp(true);
+        drawGolLamp(false);
 
         // Para-choque largo envolvente cinza chumbo com o lendário FRISO VERMELHO contínuo do GTS
         const bmp = c.createLinearGradient(0, 11, 0, 19.5);
@@ -1437,6 +1479,9 @@
           roofY: -23.0, beltY: -5.5, botY: 13.8, wheelStyle: 'steel', mirrorColor: '#DCE5EE'
         });
 
+        // Retrovisores clássicos pretos/cromados do Chevette
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.0, w: 5.0, h: 3.4, y: -9.5, r: 1.0, color: '#DCE5EE', stemDist: 23.5, stemY: -6.8 });
+
         // Vidro traseiro com moldura cromada fina
         CarArt.drawGlassQuad(c, [
           [tx - 20.0 * sx, -20.5], [tx + 20.0 * sx, -20.5],
@@ -1462,26 +1507,31 @@
         c.fillText('CHEVETTE', rx + 20.5 * sx, 5.0);
 
         // Lanternas quadradas clássicas do Tubarão (1973-1977) com aro cromado saliente
-        const drawChevetteLamp = (lx) => {
+        const drawChevetteLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -29.2 * sx;
           // Aro cromado externo
           c.fillStyle = '#E2E8F0';
-          c.fillRect(lx - 1.0, -0.6, 8.2 * sx, 9.2);
+          c.fillRect(lx - 0.8 * sx, -0.6, 8.0 * sx, 9.2);
           c.strokeStyle = out;
           c.lineWidth = 0.8;
-          c.strokeRect(lx - 1.0, -0.6, 8.2 * sx, 9.2);
+          c.strokeRect(lx - 0.8 * sx, -0.6, 8.0 * sx, 9.2);
 
           // Luz de freio vermelha (topo)
           c.fillStyle = tailRed;
-          c.fillRect(lx, 0.4, 6.2 * sx, 3.8);
+          c.fillRect(lx, 0.4, 6.4 * sx, 3.8);
           // Pisca âmbar (base)
           c.fillStyle = '#D97706';
-          c.fillRect(lx, 4.4, 6.2 * sx, 3.4);
+          c.fillRect(lx, 4.4, 6.4 * sx, 3.4);
 
-          CarArt.line(c, lx, 4.2, lx + 6.2 * sx, 4.2, '#0F172A', 0.7);
-          CarArt.drawTailGlow(c, lx + 3.1 * sx, 2.5, 4.6, 4.0, isBraking, isNight);
+          CarArt.line(c, lx, 4.2, lx + 6.4 * sx, 4.2, '#0F172A', 0.7);
+          CarArt.drawTailGlow(c, lx + 3.2 * sx, 2.5, 4.6, 4.0, isBraking, isNight);
+          c.restore();
         };
-        drawChevetteLamp(rx - 29.2 * sx);
-        drawChevetteLamp(rx + 23.0 * sx);
+        drawChevetteLamp(true);
+        drawChevetteLamp(false);
 
         // Para-choque de lâmina cromada fina com batentes (garras) pretos emborrachados
         const chrGrad = c.createLinearGradient(0, 11, 0, 16.5);
@@ -1539,6 +1589,9 @@
           roofY: -23.5, beltY: -6.0, botY: 14.0, wheelStyle: 'hubcap', mirrorColor: '#DCE5EE'
         });
 
+        // Retrovisores clássicos redondos/retangulares cromados da Brasília
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 5.2, h: 3.6, y: -9.5, r: 1.0, color: '#DCE5EE', stemDist: 24.5, stemY: -6.8 });
+
         // AS FAMOSAS GUELRAS / ALETAS DE ARREFECECIMENTO NAS COLUNAS TRASEIRAS (Marca registrada da Brasília!)
         const drawGills = (gx, isLeft) => {
           for (let g = 0; g < 4; g++) {
@@ -1568,19 +1621,24 @@
         c.fillText('Brasilia', rx + 20.0 * sx, 4.5);
 
         // Lanternas horizontais frisadas bicolores (clássica da Brasília com estrias em relevo)
-        const drawBrasiliaLamp = (lx) => {
+        const drawBrasiliaLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -32.2 * sx;
           CarArt.roundRect(c, lx, 0.4, 10.0 * sx, 8.8, 1.0, tailRed, out, 1.0);
           // Pisca âmbar no topo
           c.fillStyle = '#D97706';
-          c.fillRect(lx + 0.8, 1.2, 8.4 * sx, 3.4);
+          c.fillRect(lx + 0.8 * sx, 1.2, 8.4 * sx, 3.4);
           // Estrias horizontais em relevo por toda a lanterna
           for (let f = 1; f <= 3; f++) {
             CarArt.line(c, lx, 1.2 + f * 1.9, lx + 10.0 * sx, 1.2 + f * 1.9, '#11151D', 0.85);
           }
           CarArt.drawTailGlow(c, lx + 5.0 * sx, 4.6, 5.0, 4.2, isBraking, isNight);
+          c.restore();
         };
-        drawBrasiliaLamp(rx - 32.2 * sx);
-        drawBrasiliaLamp(rx + 22.2 * sx);
+        drawBrasiliaLamp(true);
+        drawBrasiliaLamp(false);
 
         // Para-choque clássico cromado com borrachão preto grosso contínuo no centro
         const chrGrad = c.createLinearGradient(0, 11, 0, 16.8);
@@ -1600,6 +1658,1175 @@
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
       }
+    },
+
+    // 9. CORSA WIND (O clássico Corsa Bolinha)
+    {
+      id: 'corsa',
+      name: 'CORSA WIND',
+      badge: 'O CLÁSSICO BOLINHA DOS ANOS 90',
+      desc: 'O inconfundível Corsa Wind! Design orgânico arredondado, super ágil, econômico e surpreendente nas retomadas.',
+      maxSpeed: 254,
+      acceleration: 0.77,
+      braking: 0.86,
+      handling: 0.88,
+      grip: 0.87,
+      centrifugalResistance: 0.86,
+      primaryColor: '#1E63C9',
+      roofColor: '#1A233A',
+      exhaustPipes: [[-18.0, 21.0]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 31.0 * sx, 13, 9.6, 11.2);
+        CarArt.drawRearTire(c, rx + 21.5 * sx, 13, 9.6, 11.2);
+
+        const shape = { roofY: -22.5, roofW: 19.8, shY: -6.5, shW: 30.8, midY: 5.0, midW: 32.8, botY: 20.0, botW: 31.0, round: 6.0, arch: 1.4 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -23, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.4;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 31.0 * sx, roofW: 19.8 * sx,
+          roofY: -22.5, beltY: -6.5, botY: 20.0, wheelStyle: 'steel', mirrorColor: '#1C212A', curvedRoof: true
+        });
+
+        // Retrovisores aerodinâmicos do Corsa Bolinha
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 5.0, h: 3.5, y: -9.5, r: 1.8, color: '#1C212A', stemDist: 24.5, stemY: -6.8 });
+
+        CarArt.glassCurve(c, tx, rx, sx, -19.2, -5.2, 17.0, 24.8, 2.0, 2.0);
+        CarArt.line(c, rx - 1.0, -5.8, rx + 12.0 * sx, -11.0, '#0E131B', 1.4);
+
+        const drawCorsaLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -30.5 * sx;
+          c.beginPath();
+          c.moveTo(lx, -4.5);
+          c.quadraticCurveTo(lx - 2.5 * sx, 2.5, lx, 8.5);
+          c.lineTo(lx + 7.5 * sx, 8.5);
+          c.quadraticCurveTo(lx + 6.0 * sx, 2.5, lx + 6.0 * sx, -4.5);
+          c.closePath();
+          c.fillStyle = tailRed;
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.0;
+          c.stroke();
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 1.0 * sx, 2.0, 4.5 * sx, 2.8);
+          c.fillStyle = '#F1F5F9';
+          c.fillRect(lx + 1.0 * sx, 5.2, 4.5 * sx, 2.6);
+          CarArt.drawTailGlow(c, lx + 3.5 * sx, 1.0, 4.8, 4.8, isBraking, isNight);
+          c.restore();
+        };
+        drawCorsaLamp(true);
+        drawCorsaLamp(false);
+
+        c.fillStyle = '#CBD5E1';
+        c.beginPath();
+        c.arc(rx, 2.8, 2.6, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 0.7;
+        c.stroke();
+
+        const bmp = c.createLinearGradient(0, 10.5, 0, 20.0);
+        bmp.addColorStop(0, '#2C323D');
+        bmp.addColorStop(0.5, '#1E232B');
+        bmp.addColorStop(1, '#11151B');
+        CarArt.roundRect(c, rx - 32.5 * sx, 11.0, 65.0 * sx, 9.0, 2.0, bmp, out, 1.3);
+        CarArt.drawPlateStraight(c, rx - 9.2, 13.2, 18.4, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 18.0 * sx, 20.8, 1.9);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 10. CELTA (Popular ágil e direto da Chevrolet)
+    {
+      id: 'celta',
+      name: 'CELTA',
+      badge: 'LEVE & DIRETO - PURA AGILIDADE',
+      desc: 'O popular da GM! Peso pluma, respostas rápidas de direção e estabilidade firme para devorar curvas.',
+      maxSpeed: 258,
+      acceleration: 0.80,
+      braking: 0.85,
+      handling: 0.89,
+      grip: 0.88,
+      centrifugalResistance: 0.88,
+      primaryColor: '#D1232B',
+      roofColor: '#20181A',
+      exhaustPipes: [[-18.2, 21.0]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 31.2 * sx, 13, 9.6, 11.2);
+        CarArt.drawRearTire(c, rx + 21.6 * sx, 13, 9.6, 11.2);
+
+        const rearBody = [
+          [tx - 24.0 * sx, -23.0], [tx + 24.0 * sx, -23.0],
+          [rx + 31.5 * sx, -6.0],  [rx + 32.2 * sx, 13.5],
+          [rx - 32.2 * sx, 13.5],  [rx - 31.5 * sx, -6.0]
+        ];
+        CarArt.poly(c, rearBody, CarArt.bodyGrad(c, body, -23, 14), out, 1.4);
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 31.5 * sx, roofW: 24.0 * sx,
+          roofY: -23.0, beltY: -6.0, botY: 13.5, wheelStyle: 'steel', mirrorColor: '#1A1E26'
+        });
+
+        // Retrovisores compactos pretos do Celta
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 5.0, h: 3.5, y: -9.5, r: 1.2, color: '#1A1E26', stemDist: 24.5, stemY: -6.8 });
+
+        CarArt.drawGlassQuad(c, [
+          [tx - 21.2 * sx, -20.2], [tx + 21.2 * sx, -20.2],
+          [rx + 26.2 * sx, -6.2],  [rx - 26.2 * sx, -6.2]
+        ]);
+        CarArt.line(c, rx - 1.2, -6.8, rx + 11.5 * sx, -12.0, '#0E131B', 1.4);
+
+        const drawCeltaLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -31.2 * sx;
+          CarArt.roundRect(c, lx, -4.5, 8.2 * sx, 14.5, 1.2, tailRed, out, 1.0);
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.8 * sx, 1.5, 6.6 * sx, 3.4);
+          c.fillStyle = '#F1F5F9';
+          c.fillRect(lx + 0.8 * sx, 5.5, 6.6 * sx, 3.2);
+          CarArt.drawTailGlow(c, lx + 4.1 * sx, -0.5, 4.6, 4.6, isBraking, isNight);
+          c.restore();
+        };
+        drawCeltaLamp(true);
+        drawCeltaLamp(false);
+
+        CarArt.line(c, rx - 20.0 * sx, 3.5, rx + 20.0 * sx, 3.5, CarArt.shade(body, -35), 1.0);
+        c.fillStyle = '#FFD700';
+        c.fillRect(rx - 2.8, 0.5, 5.6, 2.2);
+        c.strokeStyle = '#CBD5E1';
+        c.lineWidth = 0.6;
+        c.strokeRect(rx - 2.8, 0.5, 5.6, 2.2);
+
+        const bmp = c.createLinearGradient(0, 11.0, 0, 20.0);
+        bmp.addColorStop(0, CarArt.shade(body, -15));
+        bmp.addColorStop(1, CarArt.shade(body, -35));
+        CarArt.roundRect(c, rx - 32.6 * sx, 11.0, 65.2 * sx, 9.0, 1.8, bmp, out, 1.3);
+        CarArt.drawPlateStraight(c, rx - 9.0, 13.0, 18.0, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 18.2 * sx, 20.8, 1.9);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 11. ONIX (Líder moderno com lanternas bumerangue)
+    {
+      id: 'onix',
+      name: 'ONIX',
+      badge: 'MODERNO & POTENTE',
+      desc: 'O hatchback mais vendido do Brasil! Traseira musculosa, aerodinâmica refinada e excelente velocidade de curva.',
+      maxSpeed: 268,
+      acceleration: 0.83,
+      braking: 0.88,
+      handling: 0.85,
+      grip: 0.86,
+      centrifugalResistance: 0.85,
+      primaryColor: '#EEF2F6',
+      roofColor: '#252B36',
+      exhaustPipes: [[-19.0, 21.0]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 32.5 * sx, 13, 10.5, 11.2);
+        CarArt.drawRearTire(c, rx + 22.0 * sx, 13, 10.5, 11.2);
+
+        const shape = { roofY: -23.0, roofW: 20.5, shY: -6.0, shW: 32.5, midY: 5.5, midW: 34.0, botY: 20.0, botW: 32.5, round: 5.0, arch: 1.2 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -23, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.45;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 32.5 * sx, roofW: 20.5 * sx,
+          roofY: -23.0, beltY: -6.0, botY: 20.0, wheelStyle: 'alloy', mirrorColor: body, curvedRoof: true
+        });
+
+        // Retrovisores aerodinâmicos do Onix na cor da lataria
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 29.5, w: 5.2, h: 3.6, y: -9.4, r: 1.8, color: body, stemDist: 25.5, stemY: -6.8 });
+
+        // Aerofólio integrado no teto com brake light
+        CarArt.roundRect(c, tx - 14.0 * sx, -23.5, 28.0 * sx, 2.4, 0.8, '#141822', null, 0);
+        CarArt.roundRect(c, tx - 6.0 * sx, -23.2, 12.0 * sx, 1.4, 0.6, isBraking ? '#FF1E00' : '#8B1818', null, 0);
+
+        CarArt.glassCurve(c, tx, rx, sx, -19.5, -4.8, 18.0, 26.5, 1.6, 1.6);
+        CarArt.line(c, rx, -5.2, rx + 12.0 * sx, -10.5, '#0E131B', 1.4);
+
+        // Lanternas bipartidas modernas em bumerangue perfeitamente simétricas
+        const drawOnixLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -32.0 * sx;
+          c.beginPath();
+          c.moveTo(lx, -3.5);
+          c.lineTo(lx + 12.0 * sx, 2.0);
+          c.lineTo(lx + 12.0 * sx, 6.5);
+          c.lineTo(lx + 2.0 * sx, 6.5);
+          c.lineTo(lx - 2.0 * sx, 1.5);
+          c.closePath();
+          c.fillStyle = tailRed;
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.1;
+          c.stroke();
+          // Linha de LED interna
+          c.fillStyle = isBraking ? '#FFE4E6' : '#FF8A80';
+          c.fillRect(lx + 1.5 * sx, 2.5, 8.0 * sx, 1.8);
+          CarArt.drawTailGlow(c, lx + 5.0 * sx, 2.5, 6.0, 4.5, isBraking, isNight);
+          c.restore();
+        };
+        drawOnixLamp(true);
+        drawOnixLamp(false);
+
+        // Gravata Chevrolet dourada central
+        c.fillStyle = '#F59E0B';
+        c.fillRect(rx - 3.2, 1.5, 6.4, 2.6);
+        c.strokeStyle = '#CBD5E1';
+        c.lineWidth = 0.7;
+        c.strokeRect(rx - 3.2, 1.5, 6.4, 2.6);
+
+        // Para-choque com difusor e refletores
+        const bmp = c.createLinearGradient(0, 11.5, 0, 20.0);
+        bmp.addColorStop(0, CarArt.shade(body, -10));
+        bmp.addColorStop(0.7, CarArt.shade(body, -25));
+        bmp.addColorStop(1, '#1A202C');
+        CarArt.roundRect(c, rx - 33.5 * sx, 11.5, 67.0 * sx, 8.5, 1.8, bmp, out, 1.3);
+        // Refletores horizontais nos cantos
+        c.fillStyle = '#DC2626';
+        c.fillRect(rx - 30.0 * sx, 14.5, 6.0 * sx, 1.8);
+        c.fillRect(rx + 24.0 * sx, 14.5, 6.0 * sx, 1.8);
+
+        CarArt.drawPlateStraight(c, rx - 9.5, 13.0, 19.0, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 19.0 * sx, 20.8, 2.0);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 12. FORD KA (O clássico Baratinha / New Edge)
+    {
+      id: 'ka',
+      name: 'FORD KA',
+      badge: 'O PIONEIRO NEW EDGE - KART DE RUA',
+      desc: 'O lendário Ka "Baratinha"! Centro de gravidade baixo e entre-eixos curto que cravam curvas como um kart de pista.',
+      maxSpeed: 250,
+      acceleration: 0.79,
+      braking: 0.88,
+      handling: 0.98,
+      grip: 0.96,
+      centrifugalResistance: 0.95,
+      primaryColor: '#1E63C9',
+      roofColor: '#1A202C',
+      exhaustPipes: [[-16.5, 21.2]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 30.0 * sx, 13, 9.2, 11.2);
+        CarArt.drawRearTire(c, rx + 20.8 * sx, 13, 9.2, 11.2);
+
+        // Silhueta semicircular única do Ka G1
+        const shape = { roofY: -23.5, roofW: 18.0, shY: -5.0, shW: 30.0, midY: 6.0, midW: 32.0, botY: 20.0, botW: 29.5, round: 7.0, arch: 2.2 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -24, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.4;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 29.5 * sx, roofW: 18.0 * sx,
+          roofY: -23.5, beltY: -5.0, botY: 20.0, wheelStyle: 'steel', mirrorColor: '#1C212B', curvedRoof: true
+        });
+
+        // Retrovisores aerodinâmicos ovais do Ford Ka
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 27.5, w: 4.8, h: 3.4, y: -9.5, r: 1.8, color: '#1C212B', stemDist: 23.5, stemY: -6.8 });
+
+        // Vidro traseiro oval arredondado
+        CarArt.glassCurve(c, tx, rx, sx, -19.5, -4.0, 15.5, 23.5, 2.5, 2.5);
+        CarArt.line(c, rx, -4.5, rx + 10.0 * sx, -9.5, '#0E131B', 1.4);
+
+        // Lanternas ovais/triangulares icônicas no alto das colunas C
+        const drawKaLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -25.5 * sx;
+          c.beginPath();
+          c.ellipse(lx, -5.5, 4.8 * sx, 6.2, -0.25, 0, Math.PI * 2);
+          c.fillStyle = tailRed;
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.0;
+          c.stroke();
+          // Pisca âmbar central
+          c.fillStyle = '#D97706';
+          c.beginPath();
+          c.ellipse(lx, -5.5, 2.6 * sx, 2.6, 0, 0, Math.PI * 2);
+          c.fill();
+          CarArt.drawTailGlow(c, lx, -5.5, 5.0, 5.0, isBraking, isNight);
+          c.restore();
+        };
+        drawKaLamp(true);
+        drawKaLamp(false);
+
+        // Para-choque preto envolvente característico que sobe pelas caixas de roda
+        const bmp = c.createLinearGradient(0, 7.5, 0, 20.0);
+        bmp.addColorStop(0, '#2A303A');
+        bmp.addColorStop(0.5, '#1C222B');
+        bmp.addColorStop(1, '#11151D');
+        CarArt.roundRect(c, rx - 31.5 * sx, 8.0, 63.0 * sx, 12.0, 3.5, bmp, out, 1.35);
+
+        // Logo Ford oval azul no centro da tampa
+        c.fillStyle = '#1D4ED8';
+        c.beginPath();
+        c.ellipse(rx, 1.5, 4.0, 2.2, 0, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#E2E8F0';
+        c.lineWidth = 0.7;
+        c.stroke();
+
+        CarArt.drawPlateStraight(c, rx - 8.8, 12.8, 17.6, 4.8);
+        CarArt.drawExhaustPipe(c, rx - 16.5 * sx, 20.8, 1.8);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 13. FIAT PALIO (O clássico Palio G1 de Giugiaro)
+    {
+      id: 'palio',
+      name: 'FIAT PALIO',
+      badge: 'DESIGN ITALIANO - EQUILÍBRIO TOTAL',
+      desc: 'O hatchback global da Fiat! Linhas limpas de Giugiaro, dirigibilidade dócil e excelente equilíbrio de freios.',
+      maxSpeed: 260,
+      acceleration: 0.78,
+      braking: 0.87,
+      handling: 0.85,
+      grip: 0.86,
+      centrifugalResistance: 0.85,
+      primaryColor: '#181B21',
+      roofColor: '#15171B',
+      exhaustPipes: [[-17.5, 21.2]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 31.4 * sx, 13, 9.8, 11.2);
+        CarArt.drawRearTire(c, rx + 21.6 * sx, 13, 9.8, 11.2);
+
+        const shape = { roofY: -22.8, roofW: 20.2, shY: -6.0, shW: 31.2, midY: 5.0, midW: 33.2, botY: 20.0, botW: 31.4, round: 5.2, arch: 1.3 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -23, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.4;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 31.4 * sx, roofW: 20.2 * sx,
+          roofY: -22.8, beltY: -6.0, botY: 20.0, wheelStyle: 'steel', mirrorColor: '#1C2028', curvedRoof: true
+        });
+
+        // Retrovisores aerodinâmicos do Palio G1
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 5.0, h: 3.5, y: -9.5, r: 1.2, color: '#1C2028', stemDist: 24.5, stemY: -6.8 });
+
+        CarArt.glassCurve(c, tx, rx, sx, -19.0, -5.0, 17.5, 25.0, 1.8, 1.8);
+        CarArt.line(c, rx - 1.0, -5.5, rx + 11.0 * sx, -10.5, '#0E131B', 1.4);
+
+        // Lanternas verticais finas icônicas do Palio G1 perfeitamente simétricas
+        const drawPalioLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -31.0 * sx;
+          CarArt.roundRect(c, lx, -4.5, 6.5 * sx, 15.0, 1.0, tailRed, out, 1.0);
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.6 * sx, 2.0, 5.3 * sx, 3.2);
+          c.fillStyle = '#F1F5F9';
+          c.fillRect(lx + 0.6 * sx, 6.0, 5.3 * sx, 3.2);
+          CarArt.drawTailGlow(c, lx + 3.2 * sx, -0.5, 4.5, 4.5, isBraking, isNight);
+          c.restore();
+        };
+        drawPalioLamp(true);
+        drawPalioLamp(false);
+
+        // Emblema FIAT 5 barras inclinadas cromadas
+        for (let b = 0; b < 5; b++) {
+          CarArt.line(c, rx - 4.5 + b * 2.2, 3.2, rx - 3.0 + b * 2.2, 0.5, '#CBD5E1', 1.1);
+        }
+
+        const bmp = c.createLinearGradient(0, 11.0, 0, 20.0);
+        bmp.addColorStop(0, '#2B323D');
+        bmp.addColorStop(1, '#13171F');
+        CarArt.roundRect(c, rx - 32.8 * sx, 11.0, 65.6 * sx, 9.0, 1.8, bmp, out, 1.3);
+        CarArt.drawPlateStraight(c, rx - 9.0, 13.0, 18.0, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 17.5 * sx, 20.8, 1.9);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 14. RENAULT KWID (O SUV dos compactos)
+    {
+      id: 'kwid',
+      name: 'RENAULT KWID',
+      badge: 'O COMPACTO ROBUSTO - VÃO LIVRE ALTO',
+      desc: 'O "SUV dos compactos"! Postura alta, peso pluma e suspensão elevada para absorver ondulações da pista com facilidade.',
+      maxSpeed: 244,
+      acceleration: 0.84,
+      braking: 0.83,
+      handling: 0.81,
+      grip: 0.83,
+      centrifugalResistance: 0.81,
+      primaryColor: '#F5C400',
+      roofColor: '#2B2610',
+      exhaustPipes: [[-16.0, 21.5]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 30.5 * sx, 13, 9.2, 11.2);
+        CarArt.drawRearTire(c, rx + 21.2 * sx, 13, 9.2, 11.2);
+
+        // Carroceria alta e esguia estilo SUV urbano
+        const shape = { roofY: -24.5, roofW: 19.0, shY: -6.0, shW: 29.5, midY: 5.0, midW: 31.5, botY: 19.5, botW: 29.8, round: 4.5, arch: 1.0 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -25, 19);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.45;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 29.8 * sx, roofW: 19.0 * sx,
+          roofY: -24.5, beltY: -6.0, botY: 19.5, wheelStyle: 'steel', mirrorColor: '#1B202A', curvedRoof: true
+        });
+
+        // Retrovisores altos robustos do Kwid
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 27.5, w: 5.0, h: 3.8, y: -9.8, r: 1.4, color: '#1B202A', stemDist: 23.5, stemY: -7.0 });
+
+        // Antena longa característica no teto
+        CarArt.line(c, tx, -24.5, tx + 4.5 * sx, -32.0, '#11151D', 1.2);
+
+        CarArt.glassCurve(c, tx, rx, sx, -21.0, -5.0, 16.5, 23.5, 1.4, 1.4);
+        CarArt.line(c, rx, -5.5, rx + 10.0 * sx, -10.0, '#0E131B', 1.4);
+
+        // Molduras plásticas pretas robustas do para-choque alto
+        const bmp = c.createLinearGradient(0, 10.0, 0, 19.5);
+        bmp.addColorStop(0, '#2D3540');
+        bmp.addColorStop(1, '#11151B');
+        CarArt.roundRect(c, rx - 31.0 * sx, 10.0, 62.0 * sx, 9.5, 2.0, bmp, out, 1.35);
+
+        // Lanternas quadradas 3D compactas perfeitamente simétricas
+        const drawKwidLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -29.8 * sx;
+          CarArt.roundRect(c, lx, -3.5, 7.8 * sx, 9.5, 1.2, tailRed, out, 1.0);
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.6 * sx, 1.0, 6.6 * sx, 2.4);
+          CarArt.drawTailGlow(c, lx + 3.9 * sx, 1.0, 4.4, 4.4, isBraking, isNight);
+          c.restore();
+        };
+        drawKwidLamp(true);
+        drawKwidLamp(false);
+
+        // Losango Renault cromado
+        c.fillStyle = '#CBD5E1';
+        c.beginPath();
+        c.moveTo(rx, 0.0);
+        c.lineTo(rx + 2.5, 3.2);
+        c.lineTo(rx, 6.4);
+        c.lineTo(rx - 2.5, 3.2);
+        c.closePath();
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 0.6;
+        c.stroke();
+
+        CarArt.drawPlateStraight(c, rx - 8.5, 12.5, 17.0, 4.8);
+        CarArt.drawExhaustPipe(c, rx - 16.0 * sx, 20.5, 1.8);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 15. FORD FOCUS (O lendário MK1 com lanternas na coluna)
+    {
+      id: 'focus',
+      name: 'FORD FOCUS',
+      badge: 'LENDA DO RALLY - LANTERNAS DE TOPO',
+      desc: 'O hatchback mais dinâmico do automobilismo! Lanternas montadas na coluna do teto e suspensão traseira multilink cirúrgica.',
+      maxSpeed: 275,
+      acceleration: 0.86,
+      braking: 0.92,
+      handling: 0.94,
+      grip: 0.94,
+      centrifugalResistance: 0.93,
+      primaryColor: '#1E63C9',
+      roofColor: '#121A2A',
+      exhaustPipes: [[-19.5, 21.0]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 33.2 * sx, 13, 10.8, 11.2);
+        CarArt.drawRearTire(c, rx + 22.4 * sx, 13, 10.8, 11.2);
+
+        // Carroceria New Edge com caimento esportivo
+        const shape = { roofY: -23.5, roofW: 20.0, shY: -6.0, shW: 33.0, midY: 5.0, midW: 34.5, botY: 20.0, botW: 33.0, round: 4.8, arch: 1.4 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -24, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.45;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 33.0 * sx, roofW: 20.0 * sx,
+          roofY: -23.5, beltY: -6.0, botY: 20.0, wheelStyle: 'alloy', mirrorColor: body, curvedRoof: true
+        });
+
+        // Retrovisores aerodinâmicos do Ford Focus na cor da lataria
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 29.5, w: 5.2, h: 3.6, y: -9.6, r: 1.6, color: body, stemDist: 25.0, stemY: -7.0 });
+
+        // Aerofólio de teto esportivo com brake light
+        CarArt.roundRect(c, tx - 14.5 * sx, -24.0, 29.0 * sx, 2.5, 0.8, '#141822', null, 0);
+        CarArt.roundRect(c, tx - 5.5 * sx, -23.6, 11.0 * sx, 1.4, 0.6, isBraking ? '#FF1E00' : '#8B1818', null, 0);
+
+        CarArt.glassCurve(c, tx, rx, sx, -20.0, -4.5, 17.5, 25.5, 1.6, 1.6);
+        CarArt.line(c, rx, -5.0, rx + 12.0 * sx, -10.5, '#0E131B', 1.4);
+
+        // AS FAMOSAS LANTERNAS DE TOPO NAS COLUNAS C DO FOCUS (EMOLDURANDO O VIDRO)
+        const drawFocusPillarLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -28.5 * sx;
+          c.beginPath();
+          c.moveTo(lx, -19.5);
+          c.lineTo(lx + 5.5 * sx, -19.5);
+          c.lineTo(lx + 6.8 * sx, -4.5);
+          c.lineTo(lx, -4.5);
+          c.closePath();
+          c.fillStyle = tailRed;
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.1;
+          c.stroke();
+          // Pisca âmbar e ré no meio da lanterna alta
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.8 * sx, -13.0, 4.0 * sx, 3.2);
+          c.fillStyle = '#F1F5F9';
+          c.fillRect(lx + 0.8 * sx, -9.0, 4.0 * sx, 3.0);
+          CarArt.drawTailGlow(c, lx + 3.0 * sx, -16.0, 5.0, 5.0, isBraking, isNight);
+          c.restore();
+        };
+        drawFocusPillarLamp(true);
+        drawFocusPillarLamp(false);
+
+        // Oval Ford central
+        c.fillStyle = '#1D4ED8';
+        c.beginPath();
+        c.ellipse(rx, 2.0, 4.2, 2.3, 0, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = '#E2E8F0';
+        c.lineWidth = 0.7;
+        c.stroke();
+
+        // Para-choque esportivo envolvente com refletores nos cantos
+        const bmp = c.createLinearGradient(0, 11.0, 0, 20.0);
+        bmp.addColorStop(0, CarArt.shade(body, -12));
+        bmp.addColorStop(0.6, CarArt.shade(body, -26));
+        bmp.addColorStop(1, '#1A202A');
+        CarArt.roundRect(c, rx - 34.0 * sx, 11.0, 68.0 * sx, 9.0, 2.0, bmp, out, 1.35);
+
+        // Refletores de neblina nas pontas do para-choque
+        c.fillStyle = '#DC2626';
+        c.fillRect(rx - 31.0 * sx, 14.5, 6.2 * sx, 2.0);
+        c.fillRect(rx + 24.8 * sx, 14.5, 6.2 * sx, 2.0);
+
+        CarArt.drawPlateStraight(c, rx - 9.5, 13.0, 19.0, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 19.5 * sx, 20.8, 2.2);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 16. RENAULT SANDERO (Musculoso com pegada esportiva R.S.)
+    {
+      id: 'sandero',
+      name: 'SANDERO R.S.',
+      badge: 'ESPÍRITO DE PISTA - EXTRATOR & ESCAPE DUPLO',
+      desc: 'O hatch preparado pela divisão esportiva! Bitola larga, aerofólio traseiro, difusor funcional e ronco encorpado.',
+      maxSpeed: 272,
+      acceleration: 0.85,
+      braking: 0.93,
+      handling: 0.90,
+      grip: 0.91,
+      centrifugalResistance: 0.90,
+      primaryColor: '#D1232B',
+      roofColor: '#171B24',
+      exhaustPipes: [[-20.0, 20.8], [-15.5, 20.8]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 33.0 * sx, 13, 10.8, 11.2);
+        CarArt.drawRearTire(c, rx + 22.4 * sx, 13, 10.8, 11.2);
+
+        const shape = { roofY: -23.2, roofW: 20.5, shY: -5.5, shW: 33.0, midY: 5.5, midW: 34.5, botY: 20.2, botW: 33.0, round: 5.0, arch: 1.3 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -24, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.45;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 33.0 * sx, roofW: 20.5 * sx,
+          roofY: -23.2, beltY: -5.5, botY: 20.2, wheelStyle: 'alloy', mirrorColor: '#11151D', curvedRoof: true
+        });
+
+        // Retrovisores esportivos pretos do Sandero R.S.
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 29.5, w: 5.2, h: 3.6, y: -9.5, r: 1.6, color: '#11151D', stemDist: 25.0, stemY: -7.0 });
+
+        // Aerofólio duplo de competição no teto
+        CarArt.roundRect(c, tx - 15.0 * sx, -24.2, 30.0 * sx, 3.0, 1.0, '#111620', null, 0);
+
+        CarArt.glassCurve(c, tx, rx, sx, -19.5, -4.5, 18.0, 26.5, 1.8, 1.8);
+        CarArt.line(c, rx, -5.0, rx + 11.5 * sx, -10.5, '#0E131B', 1.4);
+
+        // Lanternas C-Shape esportivas perfeitamente simétricas
+        const drawSanderoLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -32.5 * sx;
+          c.beginPath();
+          c.moveTo(lx, -3.5);
+          c.lineTo(lx + 10.5 * sx, -1.0);
+          c.lineTo(lx + 10.5 * sx, 8.0);
+          c.lineTo(lx, 8.0);
+          c.closePath();
+          c.fillStyle = tailRed;
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.1;
+          c.stroke();
+          // Linha de luz LED
+          c.fillStyle = isBraking ? '#FFE4E6' : '#FF8A80';
+          c.fillRect(lx + 1.5 * sx, 0.5, 7.0 * sx, 2.0);
+          CarArt.drawTailGlow(c, lx + 5.0 * sx, 2.5, 5.5, 5.0, isBraking, isNight);
+          c.restore();
+        };
+        drawSanderoLamp(true);
+        drawSanderoLamp(false);
+
+        // Losango Renault e badge R.S.
+        c.fillStyle = '#CBD5E1';
+        c.beginPath();
+        c.moveTo(rx, 1.0); c.lineTo(rx + 2.6, 4.2); c.lineTo(rx, 7.4); c.lineTo(rx - 2.6, 4.2);
+        c.closePath();
+        c.fill();
+        c.fillStyle = '#EF4444';
+        c.font = 'bold 3.8px sans-serif';
+        c.textAlign = 'left';
+        c.fillText('R.S.', rx + 14.0 * sx, 6.0);
+
+        // Difusor aerodinâmico traseiro preto esportivo
+        const bmp = c.createLinearGradient(0, 11.0, 0, 20.2);
+        bmp.addColorStop(0, CarArt.shade(body, -14));
+        bmp.addColorStop(0.5, '#1E242C');
+        bmp.addColorStop(1, '#0C0F14');
+        CarArt.roundRect(c, rx - 34.0 * sx, 11.2, 68.0 * sx, 9.0, 1.8, bmp, out, 1.4);
+
+        // Aletas verticais do difusor de ar
+        for (let a = -2; a <= 2; a++) {
+          CarArt.line(c, rx + a * 5.0 * sx, 16.5, rx + a * 5.0 * sx, 20.2, '#05070A', 1.3);
+        }
+
+        CarArt.drawPlateStraight(c, rx - 9.5, 12.8, 19.0, 5.0);
+        // Dupla ponteira de escape cromada na esquerda
+        CarArt.drawExhaustPipe(c, rx - 20.0 * sx, 20.6, 2.0);
+        CarArt.drawExhaustPipe(c, rx - 15.5 * sx, 20.6, 2.0);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 17. FIAT MOBI (Tampa traseira 100% vidro preto)
+    {
+      id: 'mobi',
+      name: 'FIAT MOBI',
+      badge: 'TAMPA DE VIDRO TOTAL - SUBCOMPACTO ÁGIL',
+      desc: 'O subcompacto com a inconfundível tampa traseira toda em vidro escurecido temperado! Super ágil e direto no tráfego.',
+      maxSpeed: 246,
+      acceleration: 0.81,
+      braking: 0.86,
+      handling: 0.92,
+      grip: 0.88,
+      centrifugalResistance: 0.89,
+      primaryColor: '#F5C400',
+      roofColor: '#1A1810',
+      exhaustPipes: [[-16.0, 21.4]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 30.8 * sx, 13, 9.4, 11.2);
+        CarArt.drawRearTire(c, rx + 21.4 * sx, 13, 9.4, 11.2);
+
+        // Carroceria cúbica e curtinha
+        const shape = { roofY: -23.5, roofW: 19.5, shY: -6.0, shW: 30.5, midY: 5.0, midW: 32.5, botY: 20.0, botW: 30.8, round: 5.2, arch: 1.2 };
+        CarArt.curvedBody(c, tx, rx, sx, shape);
+        c.fillStyle = CarArt.bodyGrad(c, body, -24, 20);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.4;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 30.8 * sx, roofW: 19.5 * sx,
+          roofY: -23.5, beltY: -6.0, botY: 20.0, wheelStyle: 'steel', mirrorColor: '#1A202A', curvedRoof: true
+        });
+
+        // Retrovisores altos pretos do Fiat Mobi
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.0, w: 5.0, h: 3.6, y: -9.5, r: 1.4, color: '#1A202A', stemDist: 24.0, stemY: -6.8 });
+
+        // A MARCA REGISTRADA DO MOBI: TAMPA DO PORTA-MALAS 100% EM VIDRO PRETO BRILHANTE!
+        const glassGrad = c.createLinearGradient(0, -21, 0, 11);
+        glassGrad.addColorStop(0, '#0F172A');
+        glassGrad.addColorStop(0.3, '#1E293B');
+        glassGrad.addColorStop(1, '#090D16');
+        CarArt.roundRect(c, rx - 24.5 * sx, -21.0, 49.0 * sx, 32.0, 2.5, glassGrad, out, 1.35);
+
+        // Reflexo especular elegante no vidro da tampa
+        c.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        c.beginPath();
+        c.moveTo(rx - 20.0 * sx, -19.0);
+        c.lineTo(rx - 10.0 * sx, -19.0);
+        c.lineTo(rx - 18.0 * sx, 8.0);
+        c.lineTo(rx - 23.0 * sx, 8.0);
+        c.closePath();
+        c.fill();
+
+        CarArt.line(c, rx - 1.0, -4.5, rx + 10.0 * sx, -9.0, '#0A0E17', 1.4);
+
+        // Lanternas cúbicas em relevo 3D nos cantos superiores perfeitamente simétricas
+        const drawMobiLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -31.0 * sx;
+          CarArt.roundRect(c, lx, -4.0, 8.0 * sx, 11.5, 2.0, tailRed, out, 1.1);
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.8 * sx, 1.5, 6.4 * sx, 2.8);
+          CarArt.drawTailGlow(c, lx + 4.0 * sx, 0.5, 4.6, 4.6, isBraking, isNight);
+          c.restore();
+        };
+        drawMobiLamp(true);
+        drawMobiLamp(false);
+
+        // Logo FIAT prateado central sobre o vidro preto
+        c.fillStyle = '#CBD5E1';
+        c.font = 'bold 4.5px sans-serif';
+        c.textAlign = 'center';
+        c.fillText('FIAT', rx, 5.0);
+
+        // Para-choque inferior com placa
+        const bmp = c.createLinearGradient(0, 11.0, 0, 20.0);
+        bmp.addColorStop(0, '#2D3540');
+        bmp.addColorStop(1, '#11151D');
+        CarArt.roundRect(c, rx - 32.2 * sx, 11.0, 64.4 * sx, 9.0, 2.0, bmp, out, 1.3);
+        CarArt.drawPlateStraight(c, rx - 8.8, 13.0, 17.6, 4.8);
+        CarArt.drawExhaustPipe(c, rx - 16.0 * sx, 20.8, 1.8);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 18. VW SANTANA (O clássico sedã executivo de luxo)
+    {
+      id: 'santana',
+      name: 'VW SANTANA GLSi',
+      badge: 'O SEDÃ EXECUTIVO DE LUXO - TANQUE NA RETA',
+      desc: 'O clássico sedã executivo brasileiro! Três volumes elegantes, aerofólio na tampa e grande velocidade final de 2.0 litros.',
+      maxSpeed: 286,
+      acceleration: 0.84,
+      braking: 0.87,
+      handling: 0.72,
+      grip: 0.82,
+      centrifugalResistance: 0.84,
+      primaryColor: '#181B21',
+      roofColor: '#12151B',
+      exhaustPipes: [[-18.5, 21.5]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 33.5 * sx, 13, 10.4, 11.2);
+        CarArt.drawRearTire(c, rx + 22.5 * sx, 13, 10.4, 11.2);
+
+        // Carroceria clássica sedã 3 volumes com porta-malas saliente
+        const rearBody = [
+          [tx - 25.5 * sx, -23.0], [tx + 25.5 * sx, -23.0],
+          [rx + 33.5 * sx, -6.0],  [rx + 34.2 * sx, 13.5],
+          [rx - 34.2 * sx, 13.5],  [rx - 33.5 * sx, -6.0]
+        ];
+        CarArt.poly(c, rearBody, CarArt.bodyGrad(c, body, -23, 14), out, 1.45);
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 33.5 * sx, roofW: 25.5 * sx,
+          roofY: -23.0, beltY: -6.0, botY: 13.5, wheelStyle: 'alloy', mirrorColor: '#151922'
+        });
+
+        // Retrovisores retangulares executivos do Santana
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 30.5, w: 5.2, h: 3.5, y: -9.5, r: 1.0, color: body, stemDist: 26.0, stemY: -6.8 });
+
+        // Vidro traseiro amplo com moldura cromada
+        CarArt.drawGlassQuad(c, [
+          [tx - 22.5 * sx, -20.5], [tx + 22.5 * sx, -20.5],
+          [rx + 28.5 * sx, -6.5],  [rx - 28.5 * sx, -6.5]
+        ]);
+        CarArt.line(c, rx - 28.0 * sx, -6.5, rx + 28.0 * sx, -6.5, '#CBD5E1', 0.9);
+
+        // Aerofólio de borracha sutil na tampa do porta-malas clássico dos modelos GLSi/Executivos
+        CarArt.roundRect(c, rx - 30.5 * sx, -6.2, 61.0 * sx, 2.5, 0.8, '#141822', out, 1.0);
+
+        // AS GRANDES LANTERNAS HORIZONTAIS FRISADAS DO SANTANA (MARCA REGISTRADA)
+        const drawSantanaLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -33.2 * sx;
+          CarArt.roundRect(c, lx, 0.5, 12.5 * sx, 8.5, 0.8, tailRed, out, 1.0);
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.6 * sx, 1.2, 4.4 * sx, 3.2);
+          c.fillStyle = '#E2E8F0';
+          c.fillRect(lx + 5.5 * sx, 5.0, 5.5 * sx, 2.8);
+          // Frisos horizontais pretos característicos
+          for (let f = 1; f <= 3; f++) {
+            CarArt.line(c, lx, 0.5 + f * 2.1, lx + 12.5 * sx, 0.5 + f * 2.1, '#0F131A', 0.8);
+          }
+          CarArt.drawTailGlow(c, lx + 6.2 * sx, 4.5, 5.5, 4.5, isBraking, isNight);
+          c.restore();
+        };
+        drawSantanaLamp(true);
+        drawSantanaLamp(false);
+
+        // Centro com letreiro Santana 2000 e logo VW
+        c.fillStyle = '#111622';
+        c.fillRect(rx - 20.0 * sx, 0.5, 40.0 * sx, 8.5);
+        c.fillStyle = '#CBD5E1';
+        c.beginPath();
+        c.arc(rx, 4.8, 2.5, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#CBD5E1';
+        c.font = 'bold 3.2px sans-serif';
+        c.textAlign = 'right';
+        c.fillText('Santana', rx - 4.5 * sx, 6.0);
+        c.fillStyle = '#EF4444';
+        c.font = 'bold 3.2px sans-serif';
+        c.textAlign = 'left';
+        c.fillText('2000', rx + 4.5 * sx, 6.0);
+
+        // Para-choque clássico com friso cromado
+        const bmp = c.createLinearGradient(0, 11.2, 0, 20.2);
+        bmp.addColorStop(0, '#262D38');
+        bmp.addColorStop(0.5, '#1A2028');
+        bmp.addColorStop(1, '#0E131A');
+        CarArt.roundRect(c, rx - 34.5 * sx, 11.2, 69.0 * sx, 9.0, 1.8, bmp, out, 1.35);
+        // Friso cromado no para-choque
+        CarArt.line(c, rx - 33.5 * sx, 13.0, rx + 33.5 * sx, 13.0, '#E2E8F0', 1.0);
+
+        CarArt.drawPlateStraight(c, rx - 9.5, 13.5, 19.0, 5.0);
+        CarArt.drawExhaustPipe(c, rx - 18.5 * sx, 21.0, 2.1);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 19. RURAL WILLYS (A lenda 4x4 saia-e-blusa dois tons)
+    {
+      id: 'rural',
+      name: 'RURAL WILLYS',
+      badge: 'A LENDA 4X4 - FORÇA BRUTA & SAIA-E-BLUSA',
+      desc: 'A clássica Rural Willys brasileira! Pintura saia-e-blusa em dois tons, chassi de aço maciço e tração brutal na chuva e na terra.',
+      maxSpeed: 236,
+      acceleration: 0.88,
+      braking: 0.78,
+      handling: 0.68,
+      grip: 0.95,
+      centrifugalResistance: 0.86,
+      primaryColor: '#1E63C9',
+      roofColor: '#F8FAFC',
+      exhaustPipes: [[-19.5, 21.8]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        // Pneus largos altos de 4x4
+        CarArt.drawRearTire(c, rx - 33.0 * sx, 12, 11.2, 12.2);
+        CarArt.drawRearTire(c, rx + 22.2 * sx, 12, 11.2, 12.2);
+
+        // Carroceria alta imponente de aço
+        const ruralBody = [
+          [tx - 25.0 * sx, -25.0], [tx + 25.0 * sx, -25.0],
+          [rx + 33.0 * sx, -6.0],  [rx + 33.8 * sx, 13.5],
+          [rx - 33.8 * sx, 13.5],  [rx - 33.0 * sx, -6.0]
+        ];
+        CarArt.poly(c, ruralBody, CarArt.bodyGrad(c, body, -25, 14), out, 1.5);
+
+        // PINTURA CLÁSSICA SAIA-E-BLUSA (TETO E COLUNAS SUPERIORES EM BRANCO VINTAGE)
+        const twoToneRoof = [
+          [tx - 25.0 * sx, -25.0], [tx + 25.0 * sx, -25.0],
+          [rx + 30.5 * sx, -6.5],  [rx - 30.5 * sx, -6.5]
+        ];
+        CarArt.poly(c, twoToneRoof, '#F8FAFC', out, 1.2);
+        // Friso cromado divisório
+        CarArt.line(c, rx - 32.0 * sx, -6.5, rx + 32.0 * sx, -6.5, '#CBD5E1', 1.5);
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 33.0 * sx, roofW: 25.0 * sx,
+          roofY: -25.0, beltY: -6.0, botY: 13.5, wheelStyle: 'steel', mirrorColor: '#E2E8F0'
+        });
+
+        // Retrovisores redondos cromados da Rural Willys em haste de aço
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 4.8, h: 4.8, y: -10.5, r: 2.4, color: '#E2E8F0', stemDist: 24.5, stemY: -7.5 });
+
+        // Vidro traseiro amplo e vertical bipartido clássico com borracha e friso cromado
+        CarArt.drawGlassQuad(c, [
+          [tx - 21.5 * sx, -22.5], [tx + 21.5 * sx, -22.5],
+          [rx + 26.5 * sx, -8.0],  [rx - 26.5 * sx, -8.0]
+        ]);
+        // Divisão central do vidro traseiro
+        CarArt.line(c, rx, -22.0, rx, -8.0, '#334155', 1.5);
+
+        // Tampa traseira com vincos em chapa de aço e letreiro clássico
+        CarArt.line(c, rx - 24.0 * sx, 2.5, rx + 24.0 * sx, 2.5, CarArt.shade(body, -35), 1.2);
+        CarArt.line(c, rx - 24.0 * sx, 7.5, rx + 24.0 * sx, 7.5, CarArt.shade(body, -35), 1.2);
+
+        // Lanternas ovais verticais clássicas perfeitamente simétricas
+        const drawRuralLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -28.5 * sx;
+          c.fillStyle = '#CBD5E1';
+          c.beginPath();
+          c.ellipse(lx, 2.0, 3.8 * sx, 6.0, 0, 0, Math.PI * 2);
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 1.0;
+          c.stroke();
+
+          c.fillStyle = tailRed;
+          c.beginPath();
+          c.ellipse(lx, 2.0, 2.8 * sx, 4.8, 0, 0, Math.PI * 2);
+          c.fill();
+          CarArt.drawTailGlow(c, lx, 2.0, 4.5, 4.5, isBraking, isNight);
+          c.restore();
+        };
+        drawRuralLamp(true);
+        drawRuralLamp(false);
+
+        // PARA-CHOQUE MACIÇO CROMADO COM BATENTES DE FERRO
+        const chrGrad = c.createLinearGradient(0, 11.0, 0, 18.0);
+        chrGrad.addColorStop(0, '#FFFFFF');
+        chrGrad.addColorStop(0.4, '#CBD5E1');
+        chrGrad.addColorStop(1, '#64748B');
+        CarArt.roundRect(c, rx - 34.5 * sx, 11.0, 69.0 * sx, 6.0, 1.5, chrGrad, out, 1.4);
+        // Dois batentes verticais cromados simétricos
+        CarArt.box(c, rx - 16.0 * sx, 9.8, 3.6 * sx, 8.0, '#E2E8F0', out, 0.9);
+        CarArt.box(c, rx + 12.4 * sx, 9.8, 3.6 * sx, 8.0, '#E2E8F0', out, 0.9);
+
+        CarArt.drawPlateStraight(c, rx - 9.0, 12.0, 18.0, 4.8);
+        CarArt.drawExhaustPipe(c, rx - 19.5 * sx, 21.0, 2.2);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
+    },
+
+    // 20. VW KOMBI (A clássica Corujinha / Standard)
+    {
+      id: 'kombi',
+      name: 'KOMBI CORUJINHA',
+      badge: 'A INESQUECÍVEL PERUA - LENDA NACIONAL',
+      desc: 'O veículo mais carismático do planeta! Silhueta vertical alta, motor boxer traseiro a ar e capacidade de levar a torcida inteira.',
+      maxSpeed: 230,
+      acceleration: 0.69,
+      braking: 0.79,
+      handling: 0.66,
+      grip: 0.88,
+      centrifugalResistance: 0.78,
+      primaryColor: '#EEF2F6',
+      roofColor: '#1E63C9',
+      exhaustPipes: [[-17.0, 21.6]],
+      drawHD(c, body, turn, isBraking, isNight) {
+        const out = CarArt.OUTLINE;
+        const at = Math.abs(turn);
+        const rx = -turn * 4.6;
+        const tx = -turn * 2.2;
+        const sx = 1 - at * 0.05;
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+
+        CarArt.drawRearTire(c, rx - 31.8 * sx, 13, 10.0, 11.2);
+        CarArt.drawRearTire(c, rx + 21.8 * sx, 13, 10.0, 11.2);
+
+        // Silhueta de furgão/perua alta com teto curvo em cúpula
+        const kombiBody = [
+          [tx - 26.5 * sx, -26.0], [tx + 26.5 * sx, -26.0],
+          [rx + 32.5 * sx, -8.0],  [rx + 33.0 * sx, 14.0],
+          [rx - 33.0 * sx, 14.0],  [rx - 32.5 * sx, -8.0]
+        ];
+        CarArt.poly(c, kombiBody, CarArt.bodyGrad(c, body, -26, 14), out, 1.5);
+
+        // Teto em cúpula arredondada com friso de calha de chuva
+        c.fillStyle = CarArt.shade(body, 12);
+        c.beginPath();
+        c.ellipse(tx, -25.5, 26.5 * sx, 3.2, 0, Math.PI, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 1.2;
+        c.stroke();
+
+        CarArt.drawDiscreetSideFlank(c, body, turn, {
+          rx, tx, rearW: 33.0 * sx, roofW: 26.5 * sx,
+          roofY: -26.0, beltY: -8.0, botY: 14.0, wheelStyle: 'hubcap', mirrorColor: '#DCE5EE'
+        });
+
+        // Retrovisores redondos cromados clássicos da Kombi Corujinha
+        CarArt.drawDualMirrors(c, tx, sx, turn, { dist: 28.5, w: 4.8, h: 4.8, y: -11.0, r: 2.4, color: '#DCE5EE', stemDist: 24.5, stemY: -7.8 });
+
+        // Vigia traseira retangular clássica com cantos curvos
+        CarArt.drawGlassQuad(c, [
+          [tx - 21.0 * sx, -22.5], [tx + 21.0 * sx, -22.5],
+          [rx + 24.5 * sx, -10.0], [rx - 24.5 * sx, -10.0]
+        ]);
+
+        // Aletas de ventilação horizontais da tampa do motor Boxer
+        for (let l = 1; l <= 4; l++) {
+          CarArt.line(c, rx - 18.0 * sx, 0.5 + l * 2.2, rx + 18.0 * sx, 0.5 + l * 2.2, '#151922', 1.0);
+        }
+
+        // Lanternas traseiras clássicas redondinhas "olho de gato" perfeitamente simétricas
+        const drawKombiLamp = (isLeft) => {
+          c.save();
+          c.translate(rx, 0);
+          if (!isLeft) c.scale(-1, 1);
+          const lx = -26.5 * sx;
+          c.fillStyle = '#CBD5E1';
+          c.beginPath();
+          c.arc(lx, 4.5, 3.8 * sx, 0, Math.PI * 2);
+          c.fill();
+          c.strokeStyle = out;
+          c.lineWidth = 0.9;
+          c.stroke();
+
+          c.fillStyle = tailRed;
+          c.beginPath();
+          c.arc(lx, 4.5, 2.8 * sx, 0, Math.PI * 2);
+          c.fill();
+
+          c.fillStyle = '#F59E0B';
+          c.beginPath();
+          c.arc(lx, 3.2, 2.0 * sx, 0, Math.PI);
+          c.fill();
+          CarArt.drawTailGlow(c, lx, 4.5, 4.5, 4.5, isBraking, isNight);
+          c.restore();
+        };
+        drawKombiLamp(true);
+        drawKombiLamp(false);
+
+        // Para-choque clássico de chapa curva branca ou cromada com chanfro
+        const chrGrad = c.createLinearGradient(0, 11.5, 0, 18.5);
+        chrGrad.addColorStop(0, '#FFFFFF');
+        chrGrad.addColorStop(0.5, '#CBD5E1');
+        chrGrad.addColorStop(1, '#94A3B8');
+        CarArt.roundRect(c, rx - 33.5 * sx, 11.5, 67.0 * sx, 6.2, 2.2, chrGrad, out, 1.4);
+
+        CarArt.drawPlateStraight(c, rx - 9.0, 12.5, 18.0, 4.8);
+        CarArt.drawExhaustPipe(c, rx - 17.0 * sx, 21.0, 1.9);
+      },
+      render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
+        CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
+      }
     }
   ];
 
@@ -1612,9 +2839,16 @@
     { id: 'amarelo',  name: 'AMARELO',  hex: '#F5C400' },
     { id: 'azul',     name: 'AZUL',     hex: '#1E63C9' },
     { id: 'preto',    name: 'PRETO',    hex: '#181B21' },
-    { id: 'verde',    name: 'VERDE',    hex: '#1F9444' }
+    { id: 'verde',    name: 'VERDE',    hex: '#1F9444' },
+    { id: 'prata',    name: 'PRATA',    hex: '#94A3B8' },
+    { id: 'laranja',  name: 'LARANJA',  hex: '#EA580C' },
+    { id: 'roxo',     name: 'ROXO',     hex: '#7E22CE' },
+    { id: 'vinho',    name: 'VINHO',    hex: '#881337' }
   ];
-  const MODEL_DEFAULT_COLOR = { uno: 1, fusca: 3, peugeot: 1, hb20: 0, opala: 2, gol: 0, chevette: 3, brasilia: 2 };
+  const MODEL_DEFAULT_COLOR = {
+    uno: 1, fusca: 3, peugeot: 1, hb20: 0, opala: 2, gol: 0, chevette: 3, brasilia: 2,
+    corsa: 3, celta: 0, onix: 1, ka: 3, palio: 4, kwid: 2, focus: 3, sandero: 0, mobi: 2, santana: 4, rural: 3, kombi: 1
+  };
 
   const ColorUtil = {
     _cache: new Map(),

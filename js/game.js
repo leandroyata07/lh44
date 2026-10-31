@@ -262,10 +262,18 @@
         this.initSeasonRoster();
       }
 
-      // 19 Adversários da CPU com seus carros persistentes da temporada
+      // Garante que cada um dos 19 adversários da CPU use um dos 19 modelos restantes (todos distintos no grid de 20 carros!)
+      const remainingModels = CAR_MODELS.filter((_, idx) => idx !== this.selectedCarIndex);
+      for (let i = remainingModels.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remainingModels[i], remainingModels[j]] = [remainingModels[j], remainingModels[i]];
+      }
+
+      // 19 Adversários da CPU com seus carros únicos e distintos
       for (let slot = 1; slot <= 19; slot++) {
         const profile = this.seasonBots[slot - 1];
-        const bot = new Car(slot, profile.model, false);
+        const botModel = remainingModels[slot - 1] || profile.model;
+        const bot = new Car(slot, botModel, false);
         bot.driverName = profile.driverName;
         bot.driverCode = profile.driverCode;
         bot.bodyColor = profile.bodyColor;
@@ -606,7 +614,7 @@
         if (this.input.lastCanvasClick) {
           const click = this.input.lastCanvasClick;
           this.input.lastCanvasClick = null;
-          const { bX, bY, bW, bH, sw, btnBack, btnConfirm } = L;
+          const { bX, bY, bW, bH, sw, chips, btnBack, btnConfirm } = L;
 
           // Clique no botão VOLTAR
           if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
@@ -631,15 +639,60 @@
             return;
           }
 
-          // Clique nas amostras de cores
+          // Clique nas amostras de cores (10 cores disponíveis)
           let clickedSwatch = false;
           for (let k = 0; k < sw.length; k++) {
             const s = sw[k];
-            if (Math.hypot(click.x - s.x, click.y - s.y) <= s.r + 6) {
+            // Hitbox generosa e confortável para toque no celular e clique de mouse
+            if (Math.hypot(click.x - s.x, click.y - s.y) <= Math.max(s.r + 7, 13)) {
               this.colorIndex = s.i;
-              this.audio.playBeep(440, 0.05);
+              this.audio.playBeep(480, 0.05);
               clickedSwatch = true;
               break;
+            }
+          }
+
+          // Se clicou na faixa horizontal das cores
+          if (!clickedSwatch && sw && sw.length > 0) {
+            const swY = sw[0].y;
+            if (click.y >= swY - 11 && click.y <= swY + 11 && click.x >= sw[0].x - 12 && click.x <= sw[sw.length - 1].x + 12) {
+              // Encontra a amostra mais próxima do clique
+              let bestIdx = 0;
+              let bestDist = 999999;
+              for (let k = 0; k < sw.length; k++) {
+                const d = Math.abs(click.x - sw[k].x);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestIdx = sw[k].i;
+                }
+              }
+              this.colorIndex = bestIdx;
+              this.audio.playBeep(480, 0.05);
+              clickedSwatch = true;
+            }
+          }
+
+          // Se clicou no título/badge do carro para alternar cor
+          if (!clickedSwatch && click.y >= bY + 3 && click.y <= bY + 18 && click.x >= INTERNAL_WIDTH / 2 - 90 && click.x <= INTERNAL_WIDTH / 2 + 90) {
+            this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
+            this.audio.playBeep(480, 0.05);
+            clickedSwatch = true;
+          }
+
+          // Clique direto em qualquer um dos 20 chips de carros da grade
+          if (!clickedSwatch && chips) {
+            for (let c = 0; c < chips.length; c++) {
+              const chip = chips[c];
+              if (click.x >= chip.x && click.x <= chip.x + chip.w &&
+                  click.y >= chip.y && click.y <= chip.y + chip.h) {
+                if (this.selectedCarIndex !== chip.i) {
+                  this.selectedCarIndex = chip.i;
+                  this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
+                  this.audio.playBeep(440, 0.05);
+                }
+                this.input.clearPulses();
+                return;
+              }
             }
           }
 
@@ -666,9 +719,22 @@
           this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
         }
         if (this.input.justPressedUp || this.input.justPressedDown) {
-          const delta = this.input.justPressedDown ? 1 : -1;
-          this.colorIndex = (this.colorIndex + delta + CAR_COLORS.length) % CAR_COLORS.length;
+          this.audio.playBeep(330, 0.06);
+          // Salta 10 posições entre a 1ª e 2ª fileira de carros
+          this.selectedCarIndex = (this.selectedCarIndex + 10) % CAR_MODELS.length;
+          this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
+        }
+        if (this.input.justPressedNitro || this.input.justPressedColor) {
+          this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
           this.audio.playBeep(440, 0.05);
+        }
+        if (this.input.lastDigit !== null && this.input.lastDigit !== undefined) {
+          const d = this.input.lastDigit;
+          const targetColor = (d === 0) ? 9 : (d - 1);
+          if (targetColor >= 0 && targetColor < CAR_COLORS.length) {
+            this.colorIndex = targetColor;
+            this.audio.playBeep(480, 0.05);
+          }
         }
 
         if (this.input.justPressedEnter) {
@@ -3193,11 +3259,18 @@
 
       if (size < 3) return;
 
+      // Estado do clima e iluminação do circuito
+      const E = this.envCur;
+      const S = E ? E.s : { night: 0, dusk: 0, rain: 0, snow: 0, sun: 1 };
+      const isNight = S.night > 0.28;
+      const isDusk = S.dusk > 0.25;
+      const isSnow = (S.snow || 0) > 0.20;
+
       ctx.save();
       ctx.translate(sX, sY);
 
-      // Sombra projetada no solo
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+      // Sombra projetada no solo (ajustada para dia/noite)
+      ctx.fillStyle = isNight ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.28)';
       ctx.beginPath();
       ctx.ellipse(0, 0, size * 0.34, Math.max(1.2, size * 0.08), 0, 0, Math.PI * 2);
       ctx.fill();
@@ -3209,31 +3282,32 @@
         const ty = -th;
 
         // Estrutura metálica treliçada
-        ctx.fillStyle = '#1E293B';
+        ctx.fillStyle = isNight ? '#0F172A' : '#1E293B';
         ctx.fillRect(-tw * 0.5, ty, tw, th);
-        ctx.strokeStyle = '#64748B';
+        ctx.strokeStyle = isNight ? '#334155' : '#64748B';
         ctx.lineWidth = Math.max(1, size * 0.02);
         ctx.strokeRect(-tw * 0.5, ty, tw, th);
 
         // Painel digital luminoso preto
         const pw = tw * 0.88;
         const ph = th * 0.88;
-        ctx.fillStyle = '#090D16';
+        ctx.fillStyle = '#050912';
         ctx.fillRect(-pw * 0.5, ty + th * 0.06, pw, ph);
 
-        // Topo com lâmpadas vermelhas de sinalização
-        ctx.fillStyle = '#EF4444';
+        // Topo com lâmpadas vermelhas de sinalização (piscando à noite)
+        const blink = isNight ? (Math.sin(performance.now() * 0.008) > 0) : true;
+        ctx.fillStyle = blink ? '#EF4444' : '#450A0A';
         ctx.fillRect(-tw * 0.4, ty - size * 0.06, tw * 0.8, size * 0.05);
 
         // Linhas de classificação digital luminosa (LED verde/âmbar)
         if (size >= 12) {
-          ctx.fillStyle = '#FFD700';
+          ctx.fillStyle = isNight ? '#FFEB3B' : '#FFD700';
           ctx.font = `bold ${Math.max(4.5, Math.floor(size * 0.16))}px monospace`;
           ctx.textAlign = 'center';
           ctx.fillText('LEADER', 0, ty + th * 0.15);
           const topDrivers = ['1 HAM', '2 VER', '3 LEC', '4 NOR', '5 ALO'];
           for (let d = 0; d < topDrivers.length; d++) {
-            ctx.fillStyle = d === 0 ? '#10B981' : '#FBBF24';
+            ctx.fillStyle = d === 0 ? (isNight ? '#34D399' : '#10B981') : (isNight ? '#FDE047' : '#FBBF24');
             ctx.font = `bold ${Math.max(4, Math.floor(size * 0.13))}px monospace`;
             ctx.fillText(topDrivers[d], 0, ty + th * (0.28 + d * 0.13));
           }
@@ -3244,22 +3318,24 @@
         const ph = size * 0.45;
         const py = -ph;
 
-        ctx.fillStyle = '#334155';
+        ctx.fillStyle = isNight ? '#1E293B' : '#334155';
         ctx.fillRect(-pw * 0.5, py, pw, ph);
-        ctx.fillStyle = '#64748B';
+        ctx.fillStyle = isNight ? '#334155' : '#64748B';
         ctx.fillRect(-pw * 0.5, py, pw, ph * 0.18);
 
-        // Monitores de telemetria dos boxes
+        // Monitores de telemetria dos boxes (brilham no escuro)
         if (size >= 16) {
-          ctx.fillStyle = '#0284C7';
+          ctx.fillStyle = isNight ? '#38BDF8' : '#0284C7';
           ctx.fillRect(-pw * 0.38, py + ph * 0.24, pw * 0.32, ph * 0.38);
-          ctx.fillStyle = '#10B981';
+          ctx.fillStyle = isNight ? '#4ADE80' : '#10B981';
           ctx.fillRect(pw * 0.06, py + ph * 0.24, pw * 0.32, ph * 0.38);
         }
       } else if (scenery.type === 'palm') {
-        // Palmeira tropical costeira (estilo autêntico Top Gear da imagem de referência!)
+        // Palmeira tropical costeira (estilo autêntico Top Gear com reação de iluminação)
         const toward = scenery.offset < 0 ? 1 : -1;
-        ctx.strokeStyle = '#3E2419';
+        const trunkCol = isNight ? '#1F140E' : (isDusk ? '#331B12' : '#3E2419');
+        const trunkLight = isNight ? '#2E1E16' : (isDusk ? '#4A2B1D' : '#5E3825');
+        ctx.strokeStyle = trunkCol;
         ctx.lineWidth = Math.max(1.8, size * 0.08);
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -3267,7 +3343,7 @@
         ctx.quadraticCurveTo(toward * size * 0.14, -size * 0.48, toward * size * 0.09, -size * 0.90);
         ctx.stroke();
 
-        ctx.strokeStyle = '#5E3825';
+        ctx.strokeStyle = trunkLight;
         ctx.lineWidth = Math.max(1.0, size * 0.045);
         ctx.beginPath();
         ctx.moveTo(0, 0);
@@ -3279,7 +3355,7 @@
           const frac = k / 6;
           const kx = toward * size * 0.12 * Math.sin(frac * Math.PI);
           const ky = -size * 0.88 * frac;
-          ctx.strokeStyle = '#27160F';
+          ctx.strokeStyle = isNight ? '#140D09' : '#27160F';
           ctx.lineWidth = Math.max(0.8, size * 0.02);
           ctx.beginPath();
           ctx.moveTo(kx - size * 0.035, ky);
@@ -3290,7 +3366,12 @@
         // Folhas da copa em leque exuberante
         const crownX = toward * size * 0.09;
         const crownY = -size * 0.90;
-        const frondCols = ['#0F3819', '#1A5929', '#27823E', '#3AB459'];
+        const frondCols = isNight 
+          ? ['#0A1C12', '#0E291B', '#133925', '#1B4A31']
+          : (isDusk 
+            ? ['#1C331B', '#274724', '#385C2E', '#4B7337']
+            : ['#0F3819', '#1A5929', '#27823E', '#3AB459']);
+
         for (let f = 0; f < 8; f++) {
           const ang = (f / 7) * Math.PI * 1.1 - 0.15;
           const fx = crownX + Math.cos(ang) * size * 0.44;
@@ -3303,95 +3384,170 @@
           ctx.stroke();
         }
       } else if (scenery.type === 'pine' || (scenery.type === 'tree' && def && def.theme === 'SERRA')) {
-        // Pinheiro Araucária da Serra Catarinense com patamares e cálices
-        ctx.fillStyle = '#3E2419';
+        // Pinheiro Araucária da Serra Catarinense (adaptável a dia, tarde, noite e neve)
+        const trunkCol = isNight ? '#1B110B' : (isDusk ? '#2C1B12' : '#3E2419');
+        ctx.fillStyle = trunkCol;
         ctx.fillRect(-size * 0.05, -size * 0.95, size * 0.10, size * 0.95);
-        ctx.fillStyle = '#5A3828';
-        ctx.fillRect(-size * 0.02, -size * 0.95, size * 0.04, size * 0.95);
 
-        const layers = [
-          { y: -size * 0.94, rx: size * 0.46, ry: size * 0.13, c: '#143C25' },
-          { y: -size * 0.98, rx: size * 0.36, ry: size * 0.10, c: '#1C5233' },
-          { y: -size * 0.80, rx: size * 0.29, ry: size * 0.08, c: '#267347' },
-          { y: -size * 0.64, rx: size * 0.23, ry: size * 0.06, c: '#1E5E3A' }
-        ];
+        const layers = isNight
+          ? [
+              { y: -size * 0.94, rx: size * 0.46, ry: size * 0.13, c: '#0A1D13' },
+              { y: -size * 0.98, rx: size * 0.36, ry: size * 0.10, c: '#0F281B' },
+              { y: -size * 0.80, rx: size * 0.29, ry: size * 0.08, c: '#143624' },
+              { y: -size * 0.64, rx: size * 0.23, ry: size * 0.06, c: '#122F20' }
+            ]
+          : (isDusk
+            ? [
+                { y: -size * 0.94, rx: size * 0.46, ry: size * 0.13, c: '#1B3322' },
+                { y: -size * 0.98, rx: size * 0.36, ry: size * 0.10, c: '#23442D' },
+                { y: -size * 0.80, rx: size * 0.29, ry: size * 0.08, c: '#2F5C3E' },
+                { y: -size * 0.64, rx: size * 0.23, ry: size * 0.06, c: '#254E33' }
+              ]
+            : [
+                { y: -size * 0.94, rx: size * 0.46, ry: size * 0.13, c: '#143C25' },
+                { y: -size * 0.98, rx: size * 0.36, ry: size * 0.10, c: '#1C5233' },
+                { y: -size * 0.80, rx: size * 0.29, ry: size * 0.08, c: '#267347' },
+                { y: -size * 0.64, rx: size * 0.23, ry: size * 0.06, c: '#1E5E3A' }
+              ]);
+
         for (let l of layers) {
           ctx.fillStyle = l.c;
           ctx.beginPath();
           ctx.ellipse(0, l.y, l.rx, l.ry, 0, 0, Math.PI * 2);
           ctx.fill();
+
+          // Acúmulo de neve branca nos patamares da Araucária
+          if (isSnow) {
+            ctx.fillStyle = isNight ? '#CBD5E1' : '#FFFFFF';
+            ctx.beginPath();
+            ctx.ellipse(0, l.y - l.ry * 0.25, l.rx * 0.76, l.ry * 0.45, 0, Math.PI, Math.PI * 2);
+            ctx.fill();
+          }
         }
       } else if (scenery.type === 'bush') {
-        // Arbustos costeiros verdes na beira da cerca
-        ctx.fillStyle = '#0F3317';
+        // Arbustos costeiros verdes na beira da pista
+        const b1 = isNight ? '#08170D' : (isDusk ? '#162C17' : '#0F3317');
+        const b2 = isNight ? '#0F2617' : (isDusk ? '#204221' : '#185025');
+        const b3 = isNight ? '#163821' : (isDusk ? '#2D5E32' : '#267A3B');
+        ctx.fillStyle = b1;
         ctx.beginPath();
         ctx.ellipse(0, -size * 0.14, size * 0.34, size * 0.15, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#185025';
+        ctx.fillStyle = b2;
         ctx.beginPath();
         ctx.ellipse(-size * 0.12, -size * 0.18, size * 0.22, size * 0.16, 0, 0, Math.PI * 2);
         ctx.ellipse(size * 0.12, -size * 0.16, size * 0.22, size * 0.15, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#267A3B';
+        ctx.fillStyle = b3;
         ctx.beginPath();
         ctx.ellipse(0, -size * 0.22, size * 0.20, size * 0.14, 0, 0, Math.PI * 2);
         ctx.fill();
       } else if (scenery.type === 'tree') {
-        // Árvore frondosa em camadas com volume 16-bit
-        ctx.fillStyle = '#4E342E';
+        // Árvore frondosa em camadas com iluminação solar, crepuscular ou noturna
+        const trunkCol = isNight ? '#251A16' : (isDusk ? '#3B2723' : '#4E342E');
+        ctx.fillStyle = trunkCol;
         ctx.fillRect(-size * 0.075, -size * 0.62, size * 0.15, size * 0.62);
-        ctx.fillStyle = '#6D4C41';
-        ctx.fillRect(-size * 0.04, -size * 0.62, size * 0.05, size * 0.62);
 
-        ctx.fillStyle = '#145A32';
+        const c1 = isNight ? '#0B1F14' : (isDusk ? '#193B23' : '#145A32');
+        const c2 = isNight ? '#112B1C' : (isDusk ? '#254F30' : '#1E8449');
+        const c3 = isNight ? '#183825' : (isDusk ? '#32663E' : '#2ECC71');
+
+        ctx.fillStyle = c1;
         ctx.beginPath();
         ctx.arc(0, -size * 0.66, size * 0.36, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#1E8449';
+        ctx.fillStyle = c2;
         ctx.beginPath();
         ctx.arc(-size * 0.14, -size * 0.72, size * 0.26, 0, Math.PI * 2);
         ctx.arc(size * 0.14, -size * 0.70, size * 0.25, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#2ECC71';
+        ctx.fillStyle = c3;
         ctx.beginPath();
         ctx.arc(-size * 0.05, -size * 0.86, size * 0.22, 0, Math.PI * 2);
         ctx.fill();
+
+        // Acúmulo de neve no topo da copa
+        if (isSnow) {
+          ctx.fillStyle = isNight ? '#CBD5E1' : '#FFFFFF';
+          ctx.beginPath();
+          ctx.ellipse(0, -size * 0.96, size * 0.22, size * 0.08, 0, 0, Math.PI * 2);
+          ctx.ellipse(-size * 0.14, -size * 0.86, size * 0.16, size * 0.06, 0, 0, Math.PI * 2);
+          ctx.ellipse(size * 0.14, -size * 0.84, size * 0.16, size * 0.06, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (scenery.type === 'sign_right' || scenery.type === 'sign_left') {
-        // Postes duplos galvanizados + placa refletiva de curva
-        ctx.fillStyle = '#555';
+        // Placas refletivas de sinalização de curva estilo Top Gear
+        const postCol = isNight ? '#2A3441' : '#555555';
+        ctx.fillStyle = postCol;
         ctx.fillRect(-size * 0.16, -size * 0.45, size * 0.05, size * 0.45);
         ctx.fillRect(size * 0.11, -size * 0.45, size * 0.05, size * 0.45);
-        ctx.fillStyle = '#111';
+
+        // Moldura externa da placa
+        ctx.fillStyle = isNight ? '#080C14' : '#111111';
         ctx.fillRect(-size * 0.29, -size * 0.79, size * 0.58, size * 0.39);
-        ctx.fillStyle = '#FFC107';
-        ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
-        ctx.fillStyle = '#111';
-        ctx.font = `bold ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+
+        if (isNight) {
+          // À NOITE: ACABAMENTO RETRORREFLETIVO TOP GEAR COM GLOW
+          ctx.fillStyle = '#FFD54F';
+          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
+
+          // Borda fosforescente
+          ctx.strokeStyle = '#FFF9C4';
+          ctx.lineWidth = Math.max(0.8, size * 0.015);
+          ctx.strokeRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
+
+          // Setas iluminadas em LED de alto brilho com foco na curva
+          ctx.save();
+          ctx.shadowColor = '#FFEA00';
+          ctx.shadowBlur = Math.max(3, size * 0.08);
+          ctx.fillStyle = '#111111';
+          ctx.font = `900 ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+          ctx.restore();
+        } else if (isDusk) {
+          // PÔR DO SOL: Tom âmbar crepuscular
+          ctx.fillStyle = '#FFA000';
+          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
+          ctx.fillStyle = '#111111';
+          ctx.font = `bold ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+        } else {
+          // DIA: Placa amarela padrão nítida
+          ctx.fillStyle = '#FFC107';
+          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
+          ctx.fillStyle = '#111111';
+          ctx.font = `bold ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+        }
       } else if (scenery.type === 'grandstand') {
         // Arquibancada coberta de autódromo com torcida
-        ctx.fillStyle = '#34495E';
+        ctx.fillStyle = isNight ? '#1E293B' : '#34495E';
         ctx.fillRect(-size * 0.64, -size * 0.68, size * 1.28, size * 0.68);
-        ctx.fillStyle = '#1B2631';
+        ctx.fillStyle = isNight ? '#0F172A' : '#1B2631';
         ctx.fillRect(-size * 0.60, -size * 0.58, size * 1.20, size * 0.48);
 
-        // Fileiras de torcedores coloridos
-        const rowColors = ['#E74C3C', '#F1C40F', '#3498DB', '#2ECC71'];
+        // Fileiras de torcedores
+        const rowColors = isNight
+          ? ['#991B1B', '#B45309', '#1E40AF', '#166534']
+          : ['#E74C3C', '#F1C40F', '#3498DB', '#2ECC71'];
         for (let r = 0; r < 4; r++) {
           ctx.fillStyle = rowColors[r];
           ctx.fillRect(-size * 0.56, -size * (0.52 - r * 0.11), size * 1.12, size * 0.065);
         }
 
-        // Cobertura superior com faixa LH44 GP
-        ctx.fillStyle = '#ECF0F1';
+        // Cobertura superior
+        ctx.fillStyle = isNight ? '#94A3B8' : '#ECF0F1';
         ctx.fillRect(-size * 0.68, -size * 0.74, size * 1.36, size * 0.09);
         ctx.fillStyle = '#E74C3C';
         ctx.fillRect(-size * 0.68, -size * 0.66, size * 1.36, size * 0.035);
       } else if (scenery.type === 'streetlamp') {
-        // Poste metálico arqueado com cone de luz realista (idêntico à imagem de referência!)
+        // Poste metálico arqueado com iluminação dinâmica dia/tarde/noite
         const towardRoad = scenery.offset < 0 ? 1 : -1;
-        ctx.strokeStyle = '#5E6B7A';
+        const poleCol = isNight ? '#3A4554' : (isDusk ? '#4B5868' : '#5E6B7A');
+        ctx.strokeStyle = poleCol;
         ctx.lineWidth = Math.max(1.2, size * 0.045);
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -3400,7 +3556,7 @@
         ctx.quadraticCurveTo(0, -size * 0.94, towardRoad * size * 0.26, -size * 0.94);
         ctx.stroke();
 
-        ctx.strokeStyle = '#9AAEC4';
+        ctx.strokeStyle = isNight ? '#556475' : '#9AAEC4';
         ctx.lineWidth = Math.max(0.8, size * 0.02);
         ctx.beginPath();
         ctx.moveTo(towardRoad * 0.5, 0);
@@ -3411,56 +3567,205 @@
         const lampX = towardRoad * size * 0.26;
         const lampY = -size * 0.94;
 
-        ctx.fillStyle = '#2D3748';
+        // Carcaça da luminária
+        ctx.fillStyle = isNight ? '#1E2530' : '#2D3748';
         ctx.fillRect(lampX - size * 0.05, lampY - size * 0.03, size * 0.10, size * 0.04);
 
-        // Lâmpada brilhante acesa
-        ctx.fillStyle = '#FFF59D';
-        ctx.beginPath();
-        ctx.arc(lampX, lampY + size * 0.015, Math.max(1.5, size * 0.03), 0, Math.PI * 2);
-        ctx.fill();
+        if (isNight) {
+          // NOITE: LÂMPADA ACESA BRILHANTE COM HALO E CONE DE LUZ NO SOLO
+          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.015, 1, lampX, lampY + size * 0.015, Math.max(4, size * 0.16));
+          bulbGlow.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+          bulbGlow.addColorStop(0.35, 'rgba(255, 245, 157, 0.70)');
+          bulbGlow.addColorStop(1, 'rgba(255, 235, 59, 0)');
+          ctx.fillStyle = bulbGlow;
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.015, Math.max(4, size * 0.16), 0, Math.PI * 2);
+          ctx.fill();
 
-        // Feixe de luz volumétrico descendo do poste
-        const coneGrad = ctx.createLinearGradient(lampX, lampY, lampX, 0);
-        coneGrad.addColorStop(0, 'rgba(255, 240, 160, 0.40)');
-        coneGrad.addColorStop(0.35, 'rgba(255, 230, 130, 0.18)');
-        coneGrad.addColorStop(1, 'rgba(255, 215, 90, 0.03)');
-        ctx.fillStyle = coneGrad;
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.8, size * 0.035), 0, Math.PI * 2);
+          ctx.fill();
+
+          // Feixe cônico volumétrico descendo sobre a pista
+          const coneGrad = ctx.createLinearGradient(lampX, lampY, lampX, 0);
+          coneGrad.addColorStop(0, 'rgba(255, 245, 157, 0.48)');
+          coneGrad.addColorStop(0.35, 'rgba(255, 235, 110, 0.22)');
+          coneGrad.addColorStop(1, 'rgba(255, 215, 64, 0.03)');
+          ctx.fillStyle = coneGrad;
+          ctx.beginPath();
+          ctx.moveTo(lampX - size * 0.04, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.04, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.42, 0);
+          ctx.lineTo(lampX - size * 0.42, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          // Poça de luz quente no solo
+          ctx.fillStyle = 'rgba(255, 235, 110, 0.22)';
+          ctx.beginPath();
+          ctx.ellipse(lampX, 0, size * 0.38, Math.max(1.5, size * 0.09), 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (isDusk) {
+          // TARDE: LÂMPADA ACENDENDO COM TOM ÂMBAR
+          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.015, 1, lampX, lampY + size * 0.015, Math.max(3, size * 0.10));
+          bulbGlow.addColorStop(0, 'rgba(255, 224, 130, 0.70)');
+          bulbGlow.addColorStop(1, 'rgba(255, 183, 77, 0)');
+          ctx.fillStyle = bulbGlow;
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.015, Math.max(3, size * 0.10), 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#FFE082';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.5, size * 0.028), 0, Math.PI * 2);
+          ctx.fill();
+
+          // Feixe sutil no crepúsculo
+          const coneGrad = ctx.createLinearGradient(lampX, lampY, lampX, 0);
+          coneGrad.addColorStop(0, 'rgba(255, 193, 7, 0.20)');
+          coneGrad.addColorStop(1, 'rgba(255, 160, 0, 0)');
+          ctx.fillStyle = coneGrad;
+          ctx.beginPath();
+          ctx.moveTo(lampX - size * 0.03, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.03, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.30, 0);
+          ctx.lineTo(lampX - size * 0.30, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          // DIA: LÂMPADA TOTALMENTE APAGADA (SEM CONE DE LUZ)
+          ctx.fillStyle = '#B0BEC5';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.2, size * 0.024), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (scenery.type === 'pole') {
+        // Poste rústico de fiação elétrica estilo Top Gear clássico
+        const towardRoad = scenery.offset < 0 ? 1 : -1;
+        const woodCol = isNight ? '#1E1714' : (isDusk ? '#3E2A20' : '#5D4037');
+        const woodLight = isNight ? '#2E221D' : (isDusk ? '#53382C' : '#795548');
+
+        // Mastro vertical
+        ctx.fillStyle = woodCol;
+        ctx.fillRect(-size * 0.035, -size * 0.92, size * 0.07, size * 0.92);
+        ctx.fillStyle = woodLight;
+        ctx.fillRect(-size * 0.015, -size * 0.92, size * 0.03, size * 0.92);
+
+        // Cruzeta horizontal
+        const crossY = -size * 0.86;
+        ctx.fillStyle = woodCol;
+        ctx.fillRect(-size * 0.24, crossY, size * 0.48, size * 0.05);
+
+        // Isoladores de porcelana
+        const isoCol = isNight ? '#94A3B8' : '#F1F5F9';
+        ctx.fillStyle = isoCol;
+        ctx.fillRect(-size * 0.20, crossY - size * 0.03, size * 0.03, size * 0.03);
+        ctx.fillRect(size * 0.17, crossY - size * 0.03, size * 0.03, size * 0.03);
+        ctx.fillRect(-size * 0.015, -size * 0.95, size * 0.03, size * 0.03);
+
+        // Fiação elétrica estendida
+        ctx.strokeStyle = isNight ? '#0F172A' : '#334155';
+        ctx.lineWidth = Math.max(0.6, size * 0.01);
         ctx.beginPath();
-        ctx.moveTo(lampX - size * 0.04, lampY + size * 0.02);
-        ctx.lineTo(lampX + size * 0.04, lampY + size * 0.02);
-        ctx.lineTo(lampX + size * 0.38, 0);
-        ctx.lineTo(lampX - size * 0.38, 0);
-        ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(-size * 0.35, crossY - size * 0.01);
+        ctx.lineTo(-size * 0.20, crossY - size * 0.02);
+        ctx.lineTo(size * 0.17, crossY - size * 0.02);
+        ctx.lineTo(size * 0.35, crossY - size * 0.01);
+        ctx.stroke();
+
+        // Luminária rural voltada para a pista
+        const lampX = towardRoad * size * 0.16;
+        const lampY = crossY + size * 0.06;
+        ctx.strokeStyle = isNight ? '#475569' : '#64748B';
+        ctx.lineWidth = Math.max(0.8, size * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(0, crossY);
+        ctx.lineTo(lampX, lampY);
+        ctx.stroke();
+
+        ctx.fillStyle = isNight ? '#1E293B' : '#475569';
+        ctx.fillRect(lampX - size * 0.04, lampY, size * 0.08, size * 0.02);
+
+        if (isNight) {
+          // Lâmpada de vapor de sódio acesa à noite
+          ctx.fillStyle = '#FFE082';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.5, size * 0.028), 0, Math.PI * 2);
+          ctx.fill();
+
+          const rGlow = ctx.createRadialGradient(lampX, lampY + size * 0.02, 1, lampX, lampY + size * 0.02, size * 0.12);
+          rGlow.addColorStop(0, 'rgba(255, 235, 59, 0.80)');
+          rGlow.addColorStop(1, 'rgba(255, 193, 7, 0)');
+          ctx.fillStyle = rGlow;
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.02, size * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Feixe suave cônico
+          const cone = ctx.createLinearGradient(lampX, lampY, lampX, 0);
+          cone.addColorStop(0, 'rgba(255, 224, 130, 0.35)');
+          cone.addColorStop(1, 'rgba(255, 193, 7, 0.02)');
+          ctx.fillStyle = cone;
+          ctx.beginPath();
+          ctx.moveTo(lampX - size * 0.03, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.03, lampY + size * 0.02);
+          ctx.lineTo(lampX + size * 0.32, 0);
+          ctx.lineTo(lampX - size * 0.32, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else if (isDusk) {
+          ctx.fillStyle = '#FFB74D';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.2, size * 0.02), 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Dia: lâmpada desligada
+          ctx.fillStyle = '#94A3B8';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (scenery.type === 'building') {
-        // Prédio 3D com parede lateral sombreada e janelas acesas determinísticas
-        ctx.fillStyle = '#16202B';
+        // Prédio 3D com parede lateral e janelas adaptadas ao horário
+        const bGrad = isNight ? '#16202B' : (isDusk ? '#263238' : '#37474F');
+        const bSide = isNight ? '#0D131A' : (isDusk ? '#1C252B' : '#263238');
+        ctx.fillStyle = bGrad;
         ctx.fillRect(-size * 0.46, -size * 1.18, size * 0.78, size * 1.18);
-        ctx.fillStyle = '#0D131A';
+        ctx.fillStyle = bSide;
         ctx.fillRect(size * 0.32, -size * 1.12, size * 0.16, size * 1.12);
-        ctx.fillStyle = '#FF1744';
+
+        // Balizamento de topo piscante
+        const bBeacon = (Math.sin(performance.now() * 0.006 + segment.index) > 0);
+        ctx.fillStyle = bBeacon ? '#FF1744' : (isNight ? '#4A0812' : '#D32F2F');
         ctx.fillRect(-size * 0.08, -size * 1.24, size * 0.04, size * 0.04);
 
         for (let r = 0; r < 5; r++) {
           for (let c = 0; c < 3; c++) {
             const lit = ((segment.index + r * 3 + c) % 4 !== 0);
-            ctx.fillStyle = lit ? ((r + c) % 2 === 0 ? '#FFE082' : '#80DEEA') : '#22303F';
+            if (isNight) {
+              ctx.fillStyle = lit ? ((r + c) % 2 === 0 ? '#FFE082' : '#80DEEA') : '#1E293B';
+            } else if (isDusk) {
+              ctx.fillStyle = lit ? ((r + c) % 2 === 0 ? '#FFD54F' : '#B2EBF2') : '#37474F';
+            } else {
+              // Dia: reflexo suave dos vidros
+              ctx.fillStyle = (r + c) % 2 === 0 ? '#CFD8DC' : '#ECEFF1';
+            }
             ctx.fillRect(-size * 0.38 + c * (size * 0.23), -size * 1.06 + r * (size * 0.20), size * 0.13, size * 0.11);
           }
         }
       } else if (scenery.type === 'billboard') {
-        // Outdoors retrô de corrida estilo Top Gear (incluindo o FICII com arco-íris da imagem!)
+        // Outdoors retrô com refletores superiores que acendem à noite (estilo Top Gear clássico!)
         const billIdx = Math.abs(segment.index) % 6;
         const bw = size * 0.95;
         const bh = size * 0.48;
         const by = -size * 0.88;
 
         // Suportes metálicos duplos e travessa
-        ctx.fillStyle = '#2D3748';
+        ctx.fillStyle = isNight ? '#1E2530' : '#2D3748';
         ctx.fillRect(-bw * 0.32, by + bh, Math.max(1, size * 0.05), -by - bh);
         ctx.fillRect(bw * 0.32 - Math.max(1, size * 0.05), by + bh, Math.max(1, size * 0.05), -by - bh);
-        ctx.strokeStyle = '#4A5568';
+        ctx.strokeStyle = isNight ? '#334155' : '#4A5568';
         ctx.lineWidth = Math.max(0.8, size * 0.015);
         ctx.beginPath();
         ctx.moveTo(-bw * 0.30, by + bh);
@@ -3469,9 +3774,9 @@
         ctx.lineTo(-bw * 0.30, 0);
         ctx.stroke();
 
-        ctx.fillStyle = '#111622';
+        ctx.fillStyle = isNight ? '#0A0F1A' : '#111622';
         ctx.fillRect(-bw * 0.5, by, bw, bh);
-        ctx.strokeStyle = '#E2E8F0';
+        ctx.strokeStyle = isNight ? '#475569' : '#E2E8F0';
         ctx.lineWidth = Math.max(0.8, size * 0.015);
         ctx.strokeRect(-bw * 0.5, by, bw, bh);
 
@@ -3486,8 +3791,8 @@
 
         if (isBrasil) {
           if (billIdx === 0 || billIdx === 3) {
-            // "FICII" com arco-íris retrô (cópia fiel da imagem!)
-            ctx.fillStyle = '#16233B';
+            // "FICII" com arco-íris retrô
+            ctx.fillStyle = isNight ? '#0F1A2E' : '#16233B';
             ctx.fillRect(px, py, pw, ph);
             const rCols = ['#E65100', '#F57C00', '#FFB300', '#00ACC1', '#1E88E5'];
             for (let r = 0; r < rCols.length; r++) {
@@ -3500,18 +3805,18 @@
               ctx.fill();
             }
             if (size >= 24) {
-              ctx.fillStyle = '#FFF';
+              ctx.fillStyle = isNight ? '#FFFFFF' : '#F8FAFC';
               ctx.font = `900 ${Math.max(6, Math.floor(size * 0.19))}px sans-serif`;
               ctx.textAlign = 'left';
               ctx.fillText('FICII', px + pw * 0.08, py + ph * 0.48);
             }
-            ctx.fillStyle = '#FFD54F';
+            ctx.fillStyle = isNight ? '#FFE082' : '#FFD54F';
             ctx.beginPath();
             ctx.arc(px + pw * 0.82, py + ph * 0.55, ph * 0.28, 0, Math.PI * 2);
             ctx.fill();
           } else if (billIdx === 1 || billIdx === 4) {
             // "CHAMPION" vermelho clássico
-            ctx.fillStyle = '#B71C1C';
+            ctx.fillStyle = isNight ? '#7F1D1D' : '#B71C1C';
             ctx.fillRect(px, py, pw, ph);
             ctx.fillStyle = '#FFE082';
             ctx.fillRect(px, py + ph * 0.74, pw, ph * 0.14);
@@ -3523,7 +3828,7 @@
             }
           } else {
             // "CART" verde/amarelo
-            ctx.fillStyle = '#1B5E20';
+            ctx.fillStyle = isNight ? '#14461B' : '#1B5E20';
             ctx.fillRect(px, py, pw, ph);
             ctx.fillStyle = '#FDD835';
             ctx.fillRect(px + pw * 0.05, py + ph * 0.16, pw * 0.90, ph * 0.10);
@@ -3537,7 +3842,7 @@
         } else if (isSerra) {
           if (billIdx % 2 === 0) {
             // "SERRA 4X4" laranja montanha
-            ctx.fillStyle = '#E65100';
+            ctx.fillStyle = isNight ? '#9A3412' : '#E65100';
             ctx.fillRect(px, py, pw, ph);
             if (size >= 24) {
               ctx.fillStyle = '#FFF';
@@ -3547,7 +3852,7 @@
             }
           } else {
             // "ALPINE RALLY" verde escuro
-            ctx.fillStyle = '#1A3826';
+            ctx.fillStyle = isNight ? '#0E2317' : '#1A3826';
             ctx.fillRect(px, py, pw, ph);
             ctx.fillStyle = '#F59E0B';
             ctx.fillRect(px, py + ph * 0.78, pw, ph * 0.12);
@@ -3559,8 +3864,8 @@
             }
           }
         } else {
-          // Noite Urbana: "CYBER NITRO" e "NEO TURBO"
-          ctx.fillStyle = (billIdx % 2 === 0) ? '#1E1238' : '#0B1D28';
+          // Metrópole
+          ctx.fillStyle = (billIdx % 2 === 0) ? (isNight ? '#17092C' : '#1E1238') : (isNight ? '#07161F' : '#0B1D28');
           ctx.fillRect(px, py, pw, ph);
           if (size >= 24) {
             ctx.fillStyle = (billIdx % 2 === 0) ? '#FF007F' : '#00F0FF';
@@ -3568,6 +3873,57 @@
             ctx.textAlign = 'center';
             ctx.fillText(billIdx % 2 === 0 ? 'NITRO GP' : 'NEO TURBO', 0, py + ph * 0.58);
           }
+        }
+
+        // HASTES DE REFLETORES SUPERIORES (ILUMINAÇÃO DE TOPO)
+        const spotX1 = -bw * 0.28;
+        const spotX2 = bw * 0.28;
+        const spotArmY = by - size * 0.06;
+        ctx.strokeStyle = isNight ? '#475569' : '#64748B';
+        ctx.lineWidth = Math.max(0.8, size * 0.016);
+        ctx.beginPath();
+        ctx.moveTo(spotX1, by);
+        ctx.lineTo(spotX1, spotArmY);
+        ctx.moveTo(spotX2, by);
+        ctx.lineTo(spotX2, spotArmY);
+        ctx.stroke();
+
+        // Lâmpadas dos refletores
+        if (isNight) {
+          // ACESAS À NOITE: feixes de luz que iluminam o outdoor
+          for (let sx of [spotX1, spotX2]) {
+            ctx.fillStyle = '#FFFDE7';
+            ctx.beginPath();
+            ctx.arc(sx, spotArmY, Math.max(1.5, size * 0.024), 0, Math.PI * 2);
+            ctx.fill();
+
+            // Feixe cônico descendo sobre a placa
+            const spotGrad = ctx.createLinearGradient(sx, spotArmY, sx, by + bh);
+            spotGrad.addColorStop(0, 'rgba(255, 249, 196, 0.40)');
+            spotGrad.addColorStop(1, 'rgba(255, 238, 88, 0)');
+            ctx.fillStyle = spotGrad;
+            ctx.beginPath();
+            ctx.moveTo(sx - size * 0.03, spotArmY);
+            ctx.lineTo(sx + size * 0.03, spotArmY);
+            ctx.lineTo(sx + size * 0.22, by + bh);
+            ctx.lineTo(sx - size * 0.22, by + bh);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else if (isDusk) {
+          for (let sx of [spotX1, spotX2]) {
+            ctx.fillStyle = '#FFE082';
+            ctx.beginPath();
+            ctx.arc(sx, spotArmY, Math.max(1.2, size * 0.02), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // Dia: refletores desligados
+          ctx.fillStyle = '#94A3B8';
+          ctx.beginPath();
+          ctx.arc(spotX1, spotArmY, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
+          ctx.arc(spotX2, spotArmY, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
+          ctx.fill();
         }
       } else {
         // Outdoor genérico / padrão
@@ -4007,23 +4363,61 @@
       return { touchSafe, cardW, cardH, cardY, cards, btnBack, btnConfirm };
     }
 
-    // Geometria compartilhada da Garagem (render + botões Voltar / Confirmar + cores)
+    // Geometria compartilhada da Garagem com seletor dos 20 carros em 2 fileiras x 10 colunas
     getCarSelectLayout() {
       const touchSafe = this.input.touchControlsVisible;
-      const bW = touchSafe ? 228 : 308;
-      const bH = touchSafe ? 120 : 142;
-      const bX = (INTERNAL_WIDTH - bW) / 2;
-      const bY = touchSafe ? 34 : 36;
-      const swY = bY + (touchSafe ? 78 : 95);
-      const swR = touchSafe ? 5.2 : 5.8;
-      const gap = touchSafe ? 19 : 22;
-      const sw = [];
-      for (let i = 0; i < CAR_COLORS.length; i++) {
-        sw.push({ x: INTERNAL_WIDTH / 2 + (i - (CAR_COLORS.length - 1) / 2) * gap, y: swY, r: swR, i });
+      const W = INTERNAL_WIDTH;
+      const H = INTERNAL_HEIGHT;
+
+      // Grade dos 20 carros (2 linhas x 10 colunas)
+      const cols = 10;
+      const rows = 2;
+      const gapX = touchSafe ? 2 : 3;
+      const gapY = 2;
+      const maxGridW = touchSafe ? Math.min(W - 14, 308) : Math.min(W - 20, 360);
+      const chipW = Math.max(26, Math.floor((maxGridW - (cols - 1) * gapX) / cols));
+      const chipH = touchSafe ? 11 : 12;
+      const gridW = cols * chipW + (cols - 1) * gapX;
+      const gridH = rows * chipH + (rows - 1) * gapY;
+      const gridX = Math.round((W - gridW) / 2);
+      const gridY = touchSafe ? 15 : 17;
+
+      const chips = [];
+      for (let i = 0; i < CAR_MODELS.length; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        chips.push({
+          x: gridX + col * (chipW + gapX),
+          y: gridY + row * (chipH + gapY),
+          w: chipW,
+          h: chipH,
+          i: i
+        });
       }
+
+      const gridBottom = gridY + gridH;
+
+      // Card central do showroom
+      const bW = touchSafe ? Math.min(W - 16, 260) : Math.min(W - 24, 320);
+      const bH = touchSafe ? 116 : 128;
+      const bX = Math.round((W - bW) / 2);
+      const bY = gridBottom + (touchSafe ? 4 : 5);
+
+      // 10 Amostras de cores organizadas perfeitamente abaixo do carro
+      const numColors = CAR_COLORS.length;
+      const swY = bY + (touchSafe ? 65 : 74);
+      const swR = touchSafe ? 4.6 : 5.6;
+      const swGap = touchSafe ? 15.2 : 18.2;
+      const totalSwW = (numColors - 1) * swGap;
+      const swStartX = W / 2 - totalSwW / 2;
+      const sw = [];
+      for (let i = 0; i < numColors; i++) {
+        sw.push({ x: swStartX + i * swGap, y: swY, r: swR, i });
+      }
+
       const btnW = touchSafe ? 86 : 98;
-      const btnH = touchSafe ? 18 : 20;
-      const btnY = touchSafe ? 168 : 184;
+      const btnH = touchSafe ? 17 : 19;
+      const btnY = bY + bH + (touchSafe ? 5 : 6);
       const btnBack = {
         x: Math.round(bX),
         y: btnY,
@@ -4036,7 +4430,7 @@
         w: btnW,
         h: btnH
       };
-      return { touchSafe, bW, bH, bX, bY, swY, sw, btnBack, btnConfirm };
+      return { touchSafe, bW, bH, bX, bY, swY, sw, chips, btnBack, btnConfirm };
     }
 
     // Geometria da tela "Preparar Corrida" (chips de clima/hora e de música)
@@ -4600,108 +4994,162 @@
       const touchSafe = L.touchSafe;
 
       // Fundo translúcido deixando a pista rolar suavemente atrás da garagem
-      ctx.fillStyle = 'rgba(6, 9, 18, 0.78)';
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.82)';
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
 
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00E5FF';
-      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 14px monospace';
-      ctx.fillText('GARAGEM — ESCOLHA SUA MÁQUINA', INTERNAL_WIDTH / 2, 31);
+      ctx.font = touchSafe ? 'bold 9px monospace' : 'bold 11px monospace';
+      ctx.fillText('GARAGEM LH44 — ESCOLHA SUA MÁQUINA', INTERNAL_WIDTH / 2, touchSafe ? 11 : 12);
+
+      const CAR_SHORT_NAMES = [
+        '1 UNO',    '2 FUS',    '3 206',    '4 HB2',    '5 OPA',
+        '6 GOL',    '7 CHE',    '8 BRA',    '9 COR',    '10 CEL',
+        '11 ONX',   '12 KA',    '13 PAL',   '14 KWI',   '15 FOC',
+        '16 SAN',   '17 MOB',   '18 SNT',   '19 RUR',   '20 KOM'
+      ];
+
+      // Grade dos 20 carros no topo (2 linhas x 10 colunas)
+      if (L.chips) {
+        for (let c = 0; c < L.chips.length; c++) {
+          const chip = L.chips[c];
+          const isSel = (chip.i === this.selectedCarIndex);
+
+          if (isSel) {
+            const selGrad = ctx.createLinearGradient(chip.x, chip.y, chip.x, chip.y + chip.h);
+            selGrad.addColorStop(0, '#00E5FF');
+            selGrad.addColorStop(1, '#0284C7');
+            ctx.fillStyle = selGrad;
+            ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
+
+            ctx.fillStyle = '#060D1A';
+            ctx.font = `900 ${touchSafe ? 5.8 : 6.4}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(CAR_SHORT_NAMES[chip.i] || `${chip.i + 1}`, chip.x + chip.w / 2, chip.y + chip.h * 0.78);
+          } else {
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.45)';
+            ctx.lineWidth = 0.8;
+            ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
+
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = `bold ${touchSafe ? 5.4 : 6.0}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(CAR_SHORT_NAMES[chip.i] || `${chip.i + 1}`, chip.x + chip.w / 2, chip.y + chip.h * 0.78);
+          }
+        }
+      }
 
       const car = CAR_MODELS[this.selectedCarIndex];
       const color = CAR_COLORS[this.colorIndex];
       const now = performance.now();
-
       const { bW, bH, bX, bY } = L;
 
+      // Card principal do showroom
       const panelGrad = ctx.createLinearGradient(0, bY, 0, bY + bH);
       panelGrad.addColorStop(0, 'rgba(16, 22, 36, 0.95)');
       panelGrad.addColorStop(1, 'rgba(9, 13, 22, 0.97)');
       ctx.fillStyle = panelGrad;
       ctx.fillRect(bX, bY, bW, bH);
       ctx.strokeStyle = '#00E5FF';
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.1;
       ctx.strokeRect(bX, bY, bW, bH);
 
-      // Indicadores de paginação (bolinhas no topo do card)
-      for (let i = 0; i < CAR_MODELS.length; i++) {
-        ctx.fillStyle = (i === this.selectedCarIndex) ? '#FFD700' : '#34495E';
-        ctx.fillRect(INTERNAL_WIDTH / 2 - 22 + i * 12, bY + 5, 8, 3);
-      }
+      // Identificação e número do carro selecionado
+      const carIdxNum = (this.selectedCarIndex + 1).toString().padStart(2, '0');
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`[ ${carIdxNum} / 20 ]  ${car.name} · ${color.name}`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 11 : 13));
 
-      // Botões laterais de seleção (acima da área dos controles touch)
+      // Botões laterais ◀ ▶ de navegação
       const pulseX = Math.sin(now * 0.006) * 2;
       ctx.fillStyle = '#00E5FF';
-      ctx.font = touchSafe ? 'bold 16px monospace' : 'bold 18px monospace';
-      ctx.fillText('◀', bX - 13 - pulseX, bY + bH / 2 + 5);
-      ctx.fillText('▶', bX + bW + 13 + pulseX, bY + bH / 2 + 5);
+      ctx.font = touchSafe ? 'bold 15px monospace' : 'bold 18px monospace';
+      ctx.fillText('◀', bX - 12 - pulseX, bY + bH / 2 + 5);
+      ctx.fillText('▶', bX + bW + 12 + pulseX, bY + bH / 2 + 5);
 
-      // Plataforma giratória iluminada de showroom
+      // Plataforma iluminada centralizada
       const platX = INTERNAL_WIDTH / 2;
-      const platY = bY + (touchSafe ? 51 : 64);
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.10)';
+      const platY = bY + (touchSafe ? 44 : 50);
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
       ctx.beginPath();
-      ctx.ellipse(platX, platY, touchSafe ? 58 : 72, touchSafe ? 10 : 13, 0, 0, Math.PI * 2);
+      ctx.ellipse(platX, platY, touchSafe ? 52 : 66, touchSafe ? 9.0 : 11.5, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(platX, platY, touchSafe ? 54 : 68, touchSafe ? 8.5 : 11, 0, 0, Math.PI * 2);
+      ctx.ellipse(platX, platY, touchSafe ? 48 : 62, touchSafe ? 7.5 : 9.5, 0, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Carro em exibição na cor escolhida, alternando entre os 5 estágios discretos de curva/reta HD
-      const showcaseSteer = Math.sin(now * 0.0020) * 0.78;
-      const showcaseBrake = (Math.floor(now / 1800) % 3 === 0);
+      // Carro em exibição perfeitamente alinhado e reto na plataforma (retrovisores nítidos de ambos os lados)
       car.render(
         ctx,
         platX,
-        bY + (touchSafe ? 36 : 46),
-        touchSafe ? 90 : 108,
-        touchSafe ? 56 : 68,
-        showcaseBrake,
-        showcaseSteer,
+        bY + (touchSafe ? 30 : 35),
+        touchSafe ? 84 : 98,
+        touchSafe ? 52 : 62,
+        false,
+        0,
         color.hex,
         {
           isNitro: false,
-          wheelPhase: now * 0.014,
+          wheelPhase: 0,
           isNight: true,
-          speed: 135
+          speed: 0
         }
       );
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
-      ctx.fillText(`${car.name} · ${color.name}`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 70 : 85));
-
-      // Paleta de cores (vermelho, branco, amarelo, azul, preto, verde)
+      // Paleta com 10 cores em destaque
       for (let k = 0; k < L.sw.length; k++) {
         const s = L.sw[k];
         const selected = (s.i === this.colorIndex);
+        if (selected) {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r + 3.2, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+          ctx.fill();
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 2.0;
+          ctx.stroke();
+        }
         ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r + (selected ? 1.6 : 0), 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, s.r + (selected ? 1.0 : 0), 0, Math.PI * 2);
         ctx.fillStyle = CAR_COLORS[s.i].hex;
         ctx.fill();
-        ctx.lineWidth = selected ? 1.8 : 1;
-        ctx.strokeStyle = selected ? '#FFD700' : 'rgba(200, 215, 230, 0.55)';
+        ctx.lineWidth = selected ? 1.5 : 0.9;
+        ctx.strokeStyle = selected ? '#FFFFFF' : 'rgba(200, 215, 230, 0.55)';
         ctx.stroke();
+
+        // Ponto de brilho interno se selecionada
+        if (selected) {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 1.4, 0, Math.PI * 2);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fill();
+        }
       }
 
-      const statY = bY + (touchSafe ? 94 : 115);
-      if (touchSafe) {
-        this.drawStat(ctx, bX + 14, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', 56);
-        this.drawStat(ctx, bX + 86, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', 56);
-        this.drawStat(ctx, bX + 158, statY, 'CONTROLE', car.handling, '#00E676', 56);
-      } else {
-        this.drawStat(ctx, bX + 26, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', 68);
-        this.drawStat(ctx, bX + 120, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', 68);
-        this.drawStat(ctx, bX + 214, statY, 'CONTROLE', car.handling, '#00E676', 68);
-      }
+      // Barras de estatísticas dinâmicas
+      const statW = Math.floor((bW - 32) / 3);
+      const s1 = bX + 10;
+      const s2 = s1 + statW + 6;
+      const s3 = s2 + statW + 6;
+      const statY = bY + (touchSafe ? 83 : 94);
+      this.drawStat(ctx, s1, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', statW);
+      this.drawStat(ctx, s2, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', statW);
+      this.drawStat(ctx, s3, statY, 'CONTROLE', car.handling, '#00E676', statW);
 
+      // Descrição do carro
       ctx.textAlign = 'center';
       ctx.fillStyle = '#B0BEC5';
-      ctx.font = touchSafe ? '6.2px monospace' : '7.5px monospace';
-      ctx.fillText(car.desc, INTERNAL_WIDTH / 2, bY + (touchSafe ? 113 : 138));
+      ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
+      ctx.fillText(car.desc, INTERNAL_WIDTH / 2, bY + (touchSafe ? 104 : 117));
 
       const blink = Math.floor(now / 380) % 2 === 0;
 
@@ -4717,7 +5165,7 @@
         ctx.lineWidth = 1.2;
         ctx.strokeRect(btnB.x, btnB.y, btnB.w, btnB.h);
         ctx.fillStyle = '#ECF0F1';
-        ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9px monospace';
+        ctx.font = touchSafe ? 'bold 7.8px monospace' : 'bold 8.8px monospace';
         ctx.fillText('◀ VOLTAR [B]', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 3);
       }
 
@@ -4733,13 +5181,19 @@
         ctx.lineWidth = 1.3;
         ctx.strokeRect(btnC.x, btnC.y, btnC.w, btnC.h);
         ctx.fillStyle = '#060D1A';
-        ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9px monospace';
+        ctx.font = touchSafe ? 'bold 7.8px monospace' : 'bold 8.8px monospace';
         ctx.fillText('CONFIRMAR [A] ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 3);
       }
 
       ctx.fillStyle = '#90A4AE';
-      ctx.font = touchSafe ? '6.5px monospace' : '7.5px monospace';
-      ctx.fillText(touchSafe ? '◄ ► TROCA CARRO | TOQUE NA COR | [3]/[A] CONFIRMAR | [2]/[B] VOLTAR' : '◄ ► TROCA CARRO | CLIQUE NA COR | [A] CONFIRMAR | [B] VOLTAR', INTERNAL_WIDTH / 2, touchSafe ? 194 : 210);
+      ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
+      ctx.fillText(
+        touchSafe
+          ? '◄ ► ▲ ▼ TROCA CARRO | TOQUE NO CARRO / COR | [3]/[A] CONFIRMAR | [2]/[B] VOLTAR'
+          : '◄ ► ▲ ▼ NAVEGA NOS 20 CARROS | COR: CLIQUE, [C] OU [1-0] | [A] CONFIRMAR | [B] VOLTAR',
+        INTERNAL_WIDTH / 2,
+        touchSafe ? 193 : 209
+      );
       ctx.restore();
     }
 

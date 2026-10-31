@@ -31,6 +31,8 @@
       this.justPressedEsc = false;
       this.justPressedM = false;
       this.justPressedNitro = false;
+      this.justPressedColor = false;
+      this.lastDigit = null;
       this.lastCanvasClick = null;
 
       // Suporte nativo a Gamepads / Joysticks (Gamesir X5 Lite, Xbox, etc.)
@@ -364,6 +366,14 @@
             if (!this.keys.nitro && e.key === ' ') this.justPressedEnter = true;
             this.keys.nitro = true;
             this.syncCombinedInputs();
+            break;
+          case 'c':
+          case 'C':
+            this.justPressedColor = true;
+            break;
+          case '1': case '2': case '3': case '4': case '5':
+          case '6': case '7': case '8': case '9': case '0':
+            this.lastDigit = parseInt(e.key, 10);
             break;
           case 'Enter':
             if (!this.enter) this.justPressedEnter = true;
@@ -1069,6 +1079,8 @@
       this.justPressedEsc = false;
       this.justPressedM = false;
       this.justPressedNitro = false;
+      this.justPressedColor = false;
+      this.lastDigit = null;
       this.lastCanvasClick = null;
     }
   }

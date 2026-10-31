@@ -165,12 +165,12 @@ const TRACK_DEFINITIONS = [
       { length: 85,  curve: -2.6, hill: -400, scenery: 'tree', guardrail: 'both' },       // Curva do Lago (Esq fechada)
       { length: 90,  curve: 0,    hill: 0,    scenery: 'pole' },                           // Reta do Miolo
       { length: 80,  curve: 1.8,  hill: 400,  scenery: 'billboard', guardrail: 'both' },  // Ferradura (Dir)
-      { length: 65,  curve: -2.2, hill: -200, scenery: 'tree' },                           // Laranjinha / Pinheirinho (Esq)
+      { length: 65,  curve: -2.2, hill: -200, scenery: 'palm' },                           // Laranjinha / Pinheirinho (Esq)
       { length: 60,  curve: 2.0,  hill: -300, scenery: 'sign_right', guardrail: 'both' }, // Bico de Pato (Dir)
       { length: 75,  curve: -2.0, hill: -400, scenery: 'tree' },                           // Mergulho (Descida aberta)
       { length: 80,  curve: -2.4, hill: 400,  scenery: 'sign_left', rumbleTheme: 'brasil', guardrail: 'both' },  // Junção (Esq)
       { length: 130, curve: -1.0, hill: 900,  scenery: 'grandstand', rumbleTheme: 'brasil' }, // Subida dos Boxes
-      { length: 60,  curve: -0.8, hill: 0,    scenery: 'billboard' }                       // Curva do Café
+      { length: 60,  curve: -0.8, hill: 0,    scenery: 'streetlamp' }                      // Curva do Café
     ]
   },
   {
@@ -195,12 +195,12 @@ const TRACK_DEFINITIONS = [
       { length: 140, curve: 0,    hill: 0,     scenery: 'tree' },                          // Reta do Vale
       { length: 90,  curve: -2.4, hill: 900,   scenery: 'sign_left', guardrail: 'both' },  // Subida dos Pinhais (Esq)
       { length: 85,  curve: 1.6,  hill: 1200,  scenery: 'sign_right', guardrail: 'both' }, // Mirante das Pedras (Dir)
-      { length: 110, curve: -1.8, hill: 0,     scenery: 'tree', guardrail: 'both' },       // Curva dos Pinhais da Serra (Esq)
-      { length: 130, curve: 0,    hill: -300,  bridge: true },                             // VIADUTO DA SERRA (Ponte Suspensa nas Alturas)
+      { length: 110, curve: -1.8, hill: 0,     scenery: 'pine', guardrail: 'both' },       // Curva das Araucárias da Serra (Esq)
+      { length: 130, curve: 0,    hill: -300,  bridge: true, scenery: 'streetlamp' },      // VIADUTO DA SERRA (Ponte Suspensa Iluminada)
       { length: 95,  curve: -2.5, hill: -800,  scenery: 'sign_left', guardrail: 'both' },  // Descida da Encosta (Esq)
       { length: 80,  curve: 1.8,  hill: -1100, scenery: 'sign_right', guardrail: 'both' }, // Curva do Riacho (Dir)
-      { length: 90,  curve: -2.4, hill: -600,  scenery: 'tree', guardrail: 'both' },       // Contorno da Serra (Esq)
-      { length: 130, curve: 0,    hill: 0,     scenery: 'pole' }                           // Reta Final do Vale
+      { length: 90,  curve: -2.4, hill: -600,  scenery: 'billboard', guardrail: 'both' },  // Contorno da Serra (Esq)
+      { length: 130, curve: 0,    hill: 0,     scenery: 'pole' }                           // Reta Final do Vale (Postes Top Gear)
     ]
   },
   {
@@ -299,9 +299,21 @@ class TrackBuilder {
         if (sec.timingTower && i === 26) {
           sceneries.push({ type: 'timing_tower', offset: -1.28 });
         }
-        if (sec.scenery && idx % 18 === 0 && !isTunnel && (!segments[idx - 1] || !segments[idx - 1].tunnel)) {
-          const side = (idx % 36 === 0) ? -1.85 : 1.85;
-          sceneries.push({ type: sec.scenery, offset: side });
+        if (sec.scenery) {
+          const interval = (sec.scenery === 'streetlamp' || sec.scenery === 'pole') ? 14 : 18;
+          if (idx % interval === 0) {
+            let side;
+            if (sec.scenery === 'sign_left') {
+              side = 1.78; // Placa na margem direita (iluminada na aproximação da curva à esquerda)
+            } else if (sec.scenery === 'sign_right') {
+              side = -1.78; // Placa na margem esquerda (iluminada na aproximação da curva à direita)
+            } else if (sec.scenery === 'streetlamp') {
+              side = (idx % 28 === 0) ? -1.80 : 1.80; // Postes de luz ritmados na margem da pista
+            } else {
+              side = (idx % (interval * 2) === 0) ? -1.88 : 1.88;
+            }
+            sceneries.push({ type: sec.scenery, offset: side });
+          }
         }
 
         const sceneryObj = (sceneries.length === 1) ? sceneries[0] : (sceneries.length > 1 ? sceneries : null);
