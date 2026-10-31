@@ -28,6 +28,7 @@
 
       this.nitroCharges = 3;
       this.nitroTimer = 0;
+      this.nitroDecayTimer = 0;
       this.isNitro = false;
 
       this.targetX = 0;
@@ -291,6 +292,7 @@
         bot.steerAngle = 0;
         bot.nitroCharges = 3;
         bot.nitroTimer = 0;
+        bot.nitroDecayTimer = 0;
         bot.isNitro = false;
         bot.nitroCooldown = 3.5 + Math.random() * 5.0;
         bot.inSlipstream = false;
@@ -318,6 +320,7 @@
       this.player.inSlipstream = false;
       this.player.nitroCharges = 3;
       this.player.nitroTimer = 0;
+      this.player.nitroDecayTimer = 0;
       this.cars.push(this.player);
 
       this.playerRenderPos = { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 38 };
@@ -1222,13 +1225,22 @@
         if (this.input.justPressedNitro && p.nitroCharges > 0 && p.nitroTimer <= 0 && this.state === 'RACING') {
           p.nitroCharges--;
           p.nitroTimer = 2.4;
+          p.nitroDecayTimer = 0;
           this.audio.triggerNitroSound();
         }
         if (p.nitroTimer > 0) {
           p.nitroTimer -= dt;
           p.isNitro = true;
+          if (p.nitroTimer <= 0) {
+            p.nitroTimer = 0;
+            p.isNitro = false;
+            p.nitroDecayTimer = 3.0; // Inicia a desaceleração gradual suave de 3 segundos pós-nitro
+          }
         } else {
           p.isNitro = false;
+          if (p.nitroDecayTimer > 0) {
+            p.nitroDecayTimer = Math.max(0, p.nitroDecayTimer - dt);
+          }
         }
 
       // Detecção de Vácuo (Slipstream) progressivo e gradual:
@@ -1276,13 +1288,18 @@
       // o arrasto do ar e gera sucção imediata que eleva gradualmente a velocidade máxima
       // e acelera o veículo para encostar no líder e preparar o slingshot!
       const slipInt = p.slipstreamIntensity || 0;
-      const baseMax = p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed;
+      // Bônus de velocidade máxima do Nitro com rampa suave de decaimento de 3 segundos pós-término
+      const nitroBoostRatio = p.isNitro
+        ? 0.30
+        : (p.nitroDecayTimer > 0 ? (0.30 * (p.nitroDecayTimer / 3.0)) : 0);
+      const baseMax = model.maxSpeed * (1.0 + nitroBoostRatio);
       const speedGapBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
         ? (p.slipstreamTarget.speed - p.speed) * 0.85 * slipInt
         : 0;
       const vacuumSpeedBoost = ((baseMax * 0.22) + 24) * slipInt;
       const effectiveMaxSpeed = baseMax + vacuumSpeedBoost + speedGapBonus;
-      const effectiveAccel = (p.isNitro ? (model.acceleration * 1.85) : model.acceleration) * (1.0 + 1.25 * slipInt);
+      const accelNitroMul = p.isNitro ? 1.85 : (p.nitroDecayTimer > 0 ? (1.0 + 0.85 * (p.nitroDecayTimer / 3.0)) : 1.0);
+      const effectiveAccel = model.acceleration * accelNitroMul * (1.0 + 1.25 * slipInt);
       const speedRatio = Math.min(1.2, p.speed / Math.max(1, effectiveMaxSpeed));
 
       const isAccelerating = (this.input.up || p.isNitro) && (this.state === 'RACING');
@@ -1306,7 +1323,13 @@
       } else if (isAccelerating) {
         const rate = (132 + effectiveAccel * 135) * torqueFactor * dt;
         const suctionPull = (55 + model.acceleration * 70) * slipInt * dt;
-        p.speed = Math.min(p.speed + rate + suctionPull, dynamicMaxSpeed);
+        if (p.speed < dynamicMaxSpeed) {
+          p.speed = Math.min(p.speed + rate + suctionPull, dynamicMaxSpeed);
+        } else {
+          // Desaceleração gradual e suave pós-nitro ao longo de 3 segundos (sem cortes abruptos)
+          const excessDecay = Math.max(18, (p.speed - dynamicMaxSpeed) * 0.90) * dt;
+          p.speed = Math.max(dynamicMaxSpeed, p.speed - excessDecay);
+        }
       } else if (p.isBraking) {
         const brakeRate = (255 + model.braking * 175) * dt;
         p.speed = Math.max(p.speed - brakeRate, 0);
@@ -1479,12 +1502,20 @@
           continue;
         }
 
-        // Atualiza contadores de Nitro do Bot
+        // Atualiza contadores de Nitro do Bot com decaimento suave de 3 segundos
         if (bot.nitroTimer > 0) {
           bot.nitroTimer -= dt;
           bot.isNitro = true;
+          if (bot.nitroTimer <= 0) {
+            bot.nitroTimer = 0;
+            bot.isNitro = false;
+            bot.nitroDecayTimer = 3.0; // Desaceleração gradual suave de 3s para os bots
+          }
         } else {
           bot.isNitro = false;
+          if (bot.nitroDecayTimer > 0) {
+            bot.nitroDecayTimer = Math.max(0, bot.nitroDecayTimer - dt);
+          }
         }
         if (bot.nitroCooldown > 0) {
           bot.nitroCooldown -= dt;
@@ -1531,7 +1562,12 @@
 
         // Aplica bônus progressivo de vácuo ao bot (velocidade máxima e aceleração)
         const botSlipInt = bot.slipstreamIntensity || 0;
-        const botBaseMax = bot.isNitro ? (bot.model.maxSpeed * 1.30) : baseTargetSpeed;
+        const botNitroBoostMul = bot.isNitro
+          ? 0.30
+          : (bot.nitroDecayTimer > 0 ? (0.30 * (bot.nitroDecayTimer / 3.0)) : 0);
+        const botBaseMax = (bot.isNitro || bot.nitroDecayTimer > 0)
+          ? (bot.model.maxSpeed * (1.0 + botNitroBoostMul))
+          : baseTargetSpeed;
         const botCatchBonus = (leadCar && leadCar.speed > bot.speed)
           ? (leadCar.speed - bot.speed) * 0.85 * botSlipInt
           : 0;
@@ -1610,12 +1646,16 @@
         } else {
           bot.isBraking = false;
           if (bot.speed < targetSpeed) {
-            const accelMul = bot.isNitro ? 2.0 : (1.0 + (1.25 * (bot.slipstreamIntensity || 0)));
+            const nitroAccel = bot.isNitro ? 2.0 : (bot.nitroDecayTimer > 0 ? (1.0 + 1.0 * (bot.nitroDecayTimer / 3.0)) : 1.0);
+            const accelMul = nitroAccel + (1.25 * (bot.slipstreamIntensity || 0));
             const launchRate = (120 + bot.model.acceleration * 125) * accelMul * dt;
             const botSuctionPull = (55 + bot.model.acceleration * 70) * (bot.slipstreamIntensity || 0) * dt;
             bot.speed = Math.min(bot.speed + launchRate + botSuctionPull, targetSpeed);
           } else if (bot.bumpBoostTimer <= 0 && !bot.isNitro) {
-            bot.speed = Math.max(bot.speed - 65 * dt, targetSpeed);
+            const excessDecay = (bot.nitroDecayTimer > 0)
+              ? Math.max(18, (bot.speed - targetSpeed) * 0.90) * dt
+              : (65 * dt);
+            bot.speed = Math.max(targetSpeed, bot.speed - excessDecay);
           }
         }
 
