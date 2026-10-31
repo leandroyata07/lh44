@@ -493,6 +493,7 @@
     setupOpacityAndFullscreenUI() {
       const vp = document.getElementById('viewport');
       const panel = document.getElementById('opacity-panel');
+      const pauseBtn = document.getElementById('pause-btn');
       const gearBtn = document.getElementById('gear-btn');
       const closeBtn = document.getElementById('opacity-close-btn');
       const resumeBtn = document.getElementById('panel-resume-btn');
@@ -654,6 +655,11 @@
           });
         });
       }
+
+      bindTap(pauseBtn, () => {
+        this.notifyGesture(false);
+        this.justPressedEsc = true;
+      });
 
       bindTap(gearBtn, () => {
         this.notifyGesture(false);

@@ -108,6 +108,7 @@
       }
       this.menuCameraZ = 0;
 
+      this.pauseBtn = document.getElementById('pause-btn');
       this.player = null;
       this.cars = [];
 
@@ -290,6 +291,10 @@
         bot.steerAngle = 0;
         bot.nitroCharges = 3;
         bot.nitroTimer = 0;
+        bot.isNitro = false;
+        bot.nitroCooldown = 3.5 + Math.random() * 5.0;
+        bot.inSlipstream = false;
+        bot.slipstreamIntensity = 0;
         bot.launchDelay = 0.04 + ((slot - 1) * 0.01) + Math.random() * 0.14;
         bot.aiSkill = Math.max(0.78, Math.min(0.99, profile.baseAiSkill + (Math.random() - 0.5) * 0.025));
         this.cars.push(bot);
@@ -407,6 +412,13 @@
         } else {
           this.audio.playBeep(440, 0.08);
         }
+      }
+
+      if (this.pauseBtn) {
+        const isPaused = (this.state === 'PAUSED');
+        this.pauseBtn.textContent = isPaused ? '▶' : '⏸';
+        this.pauseBtn.title = isPaused ? 'Continuar Corrida' : 'Pausar Jogo';
+        this.pauseBtn.classList.toggle('active', isPaused);
       }
 
       if (this.state === 'MENU') {
@@ -614,7 +626,7 @@
         if (this.input.lastCanvasClick) {
           const click = this.input.lastCanvasClick;
           this.input.lastCanvasClick = null;
-          const { bX, bY, bW, bH, sw, chips, btnBack, btnConfirm } = L;
+          const { bX, bY, bW, bH, chips, btnBack, btnConfirm } = L;
 
           // Clique no botão VOLTAR
           if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
@@ -625,62 +637,17 @@
             return;
           }
 
-          // Clique no botão CONFIRMAR
+          // Clique no botão ESCOLHER COR (Avança para a Etapa de Seleção de Cor!)
           if (btnConfirm && click.x >= btnConfirm.x && click.x <= btnConfirm.x + btnConfirm.w &&
               click.y >= btnConfirm.y && click.y <= btnConfirm.y + btnConfirm.h) {
             this.audio.playBeep(523, 0.12);
-            this.state = 'NAME_INPUT';
-            if (this.nameWrapper) this.nameWrapper.classList.add('show');
-            if (this.nameInput) {
-              this.nameInput.value = this.playerName || 'JOGADOR';
-              setTimeout(() => { try { this.nameInput.focus(); this.nameInput.select(); } catch (_) {} }, 40);
-            }
+            this.state = 'COLOR_SELECT';
             this.input.clearPulses();
             return;
           }
 
-          // Clique nas amostras de cores (10 cores disponíveis)
-          let clickedSwatch = false;
-          for (let k = 0; k < sw.length; k++) {
-            const s = sw[k];
-            // Hitbox generosa e confortável para toque no celular e clique de mouse
-            if (Math.hypot(click.x - s.x, click.y - s.y) <= Math.max(s.r + 7, 13)) {
-              this.colorIndex = s.i;
-              this.audio.playBeep(480, 0.05);
-              clickedSwatch = true;
-              break;
-            }
-          }
-
-          // Se clicou na faixa horizontal das cores
-          if (!clickedSwatch && sw && sw.length > 0) {
-            const swY = sw[0].y;
-            if (click.y >= swY - 11 && click.y <= swY + 11 && click.x >= sw[0].x - 12 && click.x <= sw[sw.length - 1].x + 12) {
-              // Encontra a amostra mais próxima do clique
-              let bestIdx = 0;
-              let bestDist = 999999;
-              for (let k = 0; k < sw.length; k++) {
-                const d = Math.abs(click.x - sw[k].x);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestIdx = sw[k].i;
-                }
-              }
-              this.colorIndex = bestIdx;
-              this.audio.playBeep(480, 0.05);
-              clickedSwatch = true;
-            }
-          }
-
-          // Se clicou no título/badge do carro para alternar cor
-          if (!clickedSwatch && click.y >= bY + 3 && click.y <= bY + 18 && click.x >= INTERNAL_WIDTH / 2 - 90 && click.x <= INTERNAL_WIDTH / 2 + 90) {
-            this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
-            this.audio.playBeep(480, 0.05);
-            clickedSwatch = true;
-          }
-
           // Clique direto em qualquer um dos 20 chips de carros da grade
-          if (!clickedSwatch && chips) {
+          if (chips) {
             for (let c = 0; c < chips.length; c++) {
               const chip = chips[c];
               if (click.x >= chip.x && click.x <= chip.x + chip.w &&
@@ -697,14 +664,12 @@
           }
 
           // Setas laterais de troca de carro
-          if (!clickedSwatch) {
-            if (click.x < bX + 26 && click.y >= bY - 10 && click.y <= bY + bH + 10) {
-              this.input.justPressedLeft = true;
-              this.input.justPressedEnter = false;
-            } else if (click.x > bX + bW - 26 && click.y >= bY - 10 && click.y <= bY + bH + 10) {
-              this.input.justPressedRight = true;
-              this.input.justPressedEnter = false;
-            }
+          if (click.x < bX + 26 && click.y >= bY - 10 && click.y <= bY + bH + 10) {
+            this.input.justPressedLeft = true;
+            this.input.justPressedEnter = false;
+          } else if (click.x > bX + bW - 26 && click.y >= bY - 10 && click.y <= bY + bH + 10) {
+            this.input.justPressedRight = true;
+            this.input.justPressedEnter = false;
           }
         }
 
@@ -724,9 +689,118 @@
           this.selectedCarIndex = (this.selectedCarIndex + 10) % CAR_MODELS.length;
           this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
         }
-        if (this.input.justPressedNitro || this.input.justPressedColor) {
-          this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
+
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(523, 0.12);
+          this.state = 'COLOR_SELECT';
+          this.input.clearPulses();
+          return;
+        }
+        if (this.input.justPressedEsc) {
+          this.audio.playBeep(330, 0.06);
+          this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      // ========================================================
+      // ETAPA 2 : SELEÇÃO DE COR DO CARRO (CONTROLE, TECLADO OU TOQUE)
+      // ========================================================
+      if (this.state === 'COLOR_SELECT') {
+        if (this.nameWrapper) this.nameWrapper.classList.remove('show');
+        this.audio.silenceEffects();
+        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
+        this.cameraRoll = 0;
+        this.shake = 0;
+        this.updateSkyScroll(dt);
+        this.updateEnv(dt);
+
+        const L = this.getColorSelectLayout();
+        if (this.input.lastCanvasClick) {
+          const click = this.input.lastCanvasClick;
+          this.input.lastCanvasClick = null;
+          const { bX, bY, bW, bH, sw, btnBack, btnConfirm } = L;
+
+          // Clique no botão VOLTAR AO CARRO
+          if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
+              click.y >= btnBack.y && click.y <= btnBack.y + btnBack.h) {
+            this.audio.playBeep(330, 0.06);
+            this.state = 'CAR_SELECT';
+            this.input.clearPulses();
+            return;
+          }
+
+          // Clique no botão CONFIRMAR COR (Avança para Digitação do Nome do Piloto)
+          if (btnConfirm && click.x >= btnConfirm.x && click.x <= btnConfirm.x + btnConfirm.w &&
+              click.y >= btnConfirm.y && click.y <= btnConfirm.y + btnConfirm.h) {
+            this.audio.playBeep(523, 0.12);
+            this.state = 'NAME_INPUT';
+            if (this.nameWrapper) this.nameWrapper.classList.add('show');
+            if (this.nameInput) {
+              this.nameInput.value = this.playerName || 'JOGADOR';
+              setTimeout(() => { try { this.nameInput.focus(); this.nameInput.select(); } catch (_) {} }, 40);
+            }
+            this.input.clearPulses();
+            return;
+          }
+
+          // Clique direto nas 10 amostras circulares de cores
+          let clickedSwatch = false;
+          if (sw) {
+            for (let k = 0; k < sw.length; k++) {
+              const s = sw[k];
+              if (Math.hypot(click.x - s.x, click.y - s.y) <= Math.max(s.r + 7, 14)) {
+                if (this.colorIndex !== s.i) {
+                  this.colorIndex = s.i;
+                  this.audio.playBeep(480, 0.05);
+                }
+                clickedSwatch = true;
+                break;
+              }
+            }
+
+            // Toque em qualquer ponto da faixa horizontal das cores
+            if (!clickedSwatch && sw.length > 0) {
+              const swY = sw[0].y;
+              if (click.y >= swY - 14 && click.y <= swY + 14 && click.x >= sw[0].x - 14 && click.x <= sw[sw.length - 1].x + 14) {
+                let bestIdx = 0, bestDist = 999999;
+                for (let k = 0; k < sw.length; k++) {
+                  const d = Math.abs(click.x - sw[k].x);
+                  if (d < bestDist) {
+                    bestDist = d;
+                    bestIdx = sw[k].i;
+                  }
+                }
+                this.colorIndex = bestIdx;
+                this.audio.playBeep(480, 0.05);
+                clickedSwatch = true;
+              }
+            }
+          }
+
+          // Toque no lado esquerdo ou direito do painel para navegar nas cores
+          if (!clickedSwatch) {
+            if (click.x < bX + 32 && click.y >= bY && click.y <= bY + bH) {
+              this.input.justPressedLeft = true;
+            } else if (click.x > bX + bW - 32 && click.y >= bY && click.y <= bY + bH) {
+              this.input.justPressedRight = true;
+            }
+          }
+        }
+
+        // Navegação de Cores via Controle (D-pad / Analógico) ou Teclado (Setas / A / D)
+        if (this.input.justPressedLeft) {
           this.audio.playBeep(440, 0.05);
+          this.colorIndex = (this.colorIndex - 1 + CAR_COLORS.length) % CAR_COLORS.length;
+        }
+        if (this.input.justPressedRight) {
+          this.audio.playBeep(440, 0.05);
+          this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
+        }
+        if (this.input.justPressedNitro || this.input.justPressedColor) {
+          this.audio.playBeep(440, 0.05);
+          this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
         }
         if (this.input.lastDigit !== null && this.input.lastDigit !== undefined) {
           const d = this.input.lastDigit;
@@ -748,10 +822,14 @@
           this.input.clearPulses();
           return;
         }
+
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
+          this.state = 'CAR_SELECT';
+          this.input.clearPulses();
+          return;
         }
+
         this.input.clearPulses();
         return;
       }
@@ -787,7 +865,7 @@
             if (this.nameWrapper) this.nameWrapper.classList.remove('show');
             if (this.nameInput) this.nameInput.blur();
             this.audio.playBeep(330, 0.06);
-            this.state = 'CAR_SELECT';
+            this.state = 'COLOR_SELECT';
             this.input.clearPulses();
             return;
           }
@@ -808,7 +886,7 @@
           if (this.nameWrapper) this.nameWrapper.classList.remove('show');
           if (this.nameInput) this.nameInput.blur();
           this.audio.playBeep(330, 0.06);
-          this.state = 'CAR_SELECT';
+          this.state = 'COLOR_SELECT';
           this.input.clearPulses();
           return;
         }
@@ -1153,32 +1231,30 @@
           p.isNitro = false;
         }
 
-      // Detecção de Vácuo (Slipstream F1) dependendo da distância e alinhamento do carro à frente
+      // Detecção de Vácuo (Slipstream) progressivo e gradual:
+      // Inicia suavemente a ~480 unidades (~9-10 carros) e atinge o ápice de 100% de sucção
+      // na distância de dois carros à frente (<= 95 unidades), crescendo gradativamente!
       p.inSlipstream = false;
       p.slipstreamIntensity = 0;
       p.slipstreamTarget = null;
-      if (this.state === 'RACING' && p.speed > 85) {
+      if (this.state === 'RACING' && p.speed > 42) {
         let bestIntensity = 0;
         let bestTarget = null;
         for (let i = 0; i < this.cars.length; i++) {
           const other = this.cars[i];
           if (other.isPlayer) continue;
           const aheadDz = this.shortestDeltaZ(other.z, p.z);
-          // Cone aerodinâmico F1: entre 80 e 880 unidades de distância
-          if (aheadDz > 80 && aheadDz < 880) {
+          if (aheadDz > 38 && aheadDz < 480) {
+            let distW = 0;
+            if (aheadDz <= 95) {
+              distW = 1.0;
+            } else {
+              distW = Math.pow(1.0 - ((aheadDz - 95) / (480 - 95)), 1.20);
+            }
+            const maxLat = 0.44 + 0.16 * (aheadDz / 480);
             const latDiff = Math.abs(other.x - p.x);
-            if (latDiff < 0.44) {
-              // Curva de vácuo F1:
-              // - 80 a 200: muito perto (turbulência residual / vácuo forte)
-              // - 200 a 450: sweet spot com menor arrasto e máxima sucção
-              // - 450 a 880: atenuação gradual com a distância
-              let distW = 1.0;
-              if (aheadDz < 200) {
-                distW = 0.70 + 0.30 * ((aheadDz - 80) / 120);
-              } else if (aheadDz > 450) {
-                distW = 1.0 - ((aheadDz - 450) / 430);
-              }
-              const alignW = Math.max(0, 1.0 - (latDiff / 0.44));
+            if (latDiff < maxLat) {
+              const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
               const intensity = Math.max(0, Math.min(1.0, distW * alignW));
               if (intensity > bestIntensity) {
                 bestIntensity = intensity;
@@ -1187,17 +1263,23 @@
             }
           }
         }
-        if (bestIntensity > 0.04) {
+        if (bestIntensity > 0.03) {
           p.inSlipstream = true;
           p.slipstreamIntensity = bestIntensity;
           p.slipstreamTarget = bestTarget;
         }
       }
 
-      // Ganho progressivo de velocidade e aceleração conforme a proximidade (Fórmula 1)
-      const slipMaxMul = 1.0 + (0.085 * (p.slipstreamIntensity || 0));
-      const slipAccMul = 1.0 + (0.35 * (p.slipstreamIntensity || 0));
-      const effectiveMaxSpeed = (p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed) * slipMaxMul;
+      // Ganho progressivo de velocidade e aceleração conforme a proximidade (Fórmula 1):
+      // Permite que carros mais lentos (Fusca, Brasília, Uno, Corsa, etc.) utilizem o vácuo
+      // de carros mais velozes para emparelhar, ganhar giro e executar a ultrapassagem!
+      const slipInt = p.slipstreamIntensity || 0;
+      const slipMaxMul = 1.0 + (0.16 * slipInt);
+      const slipAccMul = 1.0 + (0.55 * slipInt);
+      const targetDraftBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
+        ? (p.slipstreamTarget.speed - p.speed) * 0.24 * slipInt
+        : 0;
+      const effectiveMaxSpeed = ((p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed) * slipMaxMul) + targetDraftBonus;
       const effectiveAccel = (p.isNitro ? (model.acceleration * 1.85) : model.acceleration) * slipAccMul;
       const speedRatio = Math.min(1.2, p.speed / Math.max(1, effectiveMaxSpeed));
 
@@ -1382,7 +1464,7 @@
       }
     }
 
-      // --- IA DOS 19 BOTS (LARGADA F1 + TRAÇADO + ULTRAPASSAGEM) ---
+      // --- IA DOS 19 BOTS (LARGADA F1 + TRAÇADO + VÁCUO + 3 NITROS E ULTRAPASSAGEM) ---
       for (let i = 0; i < this.cars.length; i++) {
         const bot = this.cars[i];
         if (bot.isPlayer) continue;
@@ -1392,17 +1474,94 @@
           continue;
         }
 
+        // Atualiza contadores de Nitro do Bot
+        if (bot.nitroTimer > 0) {
+          bot.nitroTimer -= dt;
+          bot.isNitro = true;
+        } else {
+          bot.isNitro = false;
+        }
+        if (bot.nitroCooldown > 0) {
+          bot.nitroCooldown -= dt;
+        }
+
         const botSeg = this.findSegment(bot.z);
         const botSlope = (botSeg.p2.world.y - botSeg.p1.world.y) / SEGMENT_LENGTH;
-        let targetSpeed = bot.model.maxSpeed * bot.aiSkill * 0.94;
-        if (Math.abs(botSeg.curve) > 2.0) targetSpeed *= 0.84;
-        // Gravidade para os rivais tambem (embalam na descida e pesam na subida)
-        targetSpeed += Math.max(-45, -botSlope * 210);
+        let baseTargetSpeed = bot.model.maxSpeed * bot.aiSkill * 0.96;
+        if (Math.abs(botSeg.curve) > 2.0) baseTargetSpeed *= 0.86;
+        // Gravidade para os rivais também (embalam na descida e pesam na subida)
+        baseTargetSpeed += Math.max(-45, -botSlope * 210);
 
+        // Vácuo para os Bots: detecta carros à frente (jogador ou outros bots)
+        bot.inSlipstream = false;
+        bot.slipstreamIntensity = 0;
+        let leadCar = null;
+        let leadDist = 9999;
+        if (this.state === 'RACING' && bot.speed > 40) {
+          let bestIntensity = 0;
+          for (let k = 0; k < this.cars.length; k++) {
+            if (i === k) continue;
+            const other = this.cars[k];
+            const aheadDz = this.shortestDeltaZ(other.z, bot.z);
+            if (aheadDz > 38 && aheadDz < 480) {
+              const distW = (aheadDz <= 95) ? 1.0 : Math.pow(1.0 - ((aheadDz - 95) / (480 - 95)), 1.20);
+              const maxLat = 0.44 + 0.16 * (aheadDz / 480);
+              const latDiff = Math.abs(other.x - bot.x);
+              if (latDiff < maxLat) {
+                const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
+                const intensity = Math.max(0, Math.min(1.0, distW * alignW));
+                if (intensity > bestIntensity) {
+                  bestIntensity = intensity;
+                  leadCar = other;
+                  leadDist = aheadDz;
+                }
+              }
+            }
+          }
+          if (bestIntensity > 0.03) {
+            bot.inSlipstream = true;
+            bot.slipstreamIntensity = bestIntensity;
+          }
+        }
+
+        // Aplica bônus de vácuo ao bot (velocidade máxima e aceleração)
+        let targetSpeed = baseTargetSpeed * (1.0 + (0.15 * (bot.slipstreamIntensity || 0)));
+        if (leadCar && leadCar.speed > bot.speed) {
+          targetSpeed += (leadCar.speed - bot.speed) * 0.22 * (bot.slipstreamIntensity || 0);
+        }
+
+        // Bônus do Nitro ativo do Bot
+        if (bot.isNitro) {
+          targetSpeed = bot.model.maxSpeed * 1.30;
+        }
+
+        // Inteligência de Uso dos 3 Nitros pelos Bots
+        if (this.state === 'RACING' && this.raceTimer > 2.5 && bot.nitroCharges > 0 && bot.nitroTimer <= 0 && bot.nitroCooldown <= 0) {
+          const isStraight = Math.abs(botSeg.curve) < 1.0;
+          // Caso 1: Vácuo próximo querendo ultrapassar na reta (slingshot)
+          const shouldDraftPass = leadCar && leadDist < 240 && isStraight && (bot.speed > 130);
+          // Caso 2: Saída de curva para reta acelerando forte
+          const shouldExitLaunch = isStraight && bot.speed < bot.model.maxSpeed * 0.82 && Math.random() < 0.04;
+          // Caso 3: Disputa acirrada com o jogador (defendendo ou atacando na 2ª e 3ª voltas)
+          const playerDist = Math.abs(this.shortestDeltaZ(this.player.z, bot.z));
+          const shouldFightPlayer = playerDist < 260 && (this.player.laps >= 1 || isStraight) && Math.random() < 0.06;
+
+          if (shouldDraftPass || shouldExitLaunch || shouldFightPlayer) {
+            bot.nitroCharges--;
+            bot.nitroTimer = 2.4;
+            bot.nitroCooldown = 7.0 + Math.random() * 8.0;
+            bot.isNitro = true;
+          }
+        }
+
+        // Traçado e Tangência dos Bots
         if (this.raceTimer > 2.8) {
           if (botSeg.curve !== 0) {
             const apexX = Math.max(-0.68, Math.min(0.68, -botSeg.curve * 0.22));
             bot.targetX += (apexX - bot.targetX) * 1.4 * dt;
+          } else if (bot.inSlipstream && leadCar && leadDist > 120) {
+            // Em vácuo distante: o bot se posiciona atrás do carro da frente para sugar velocidade!
+            bot.targetX += (leadCar.x - bot.targetX) * 2.0 * dt;
           } else {
             bot.laneChangeTimer -= dt;
             if (bot.laneChangeTimer <= 0) {
@@ -1417,32 +1576,36 @@
           bot.bumpBoostTimer -= dt;
         }
 
+        // Manobra inteligente de ultrapassagem / desvio
         for (let j = 0; j < this.cars.length; j++) {
           if (i === j) continue;
           const other = this.cars[j];
           const distZ = this.shortestDeltaZ(other.z, bot.z);
-          if (distZ > 0 && distZ < 330 && Math.abs(other.x - bot.x) < 0.40) {
+          if (distZ > 0 && distZ < 260 && Math.abs(other.x - bot.x) < 0.40) {
             blocked = true;
             if (this.raceTimer > 1.6) {
-              const passDir = (other.x > 0) ? -0.42 : 0.42;
+              // Slingshot: puxa para a lateral livre para ultrapassar
+              const passDir = (other.x > 0) ? -0.44 : 0.44;
               bot.targetX = Math.max(-0.78, Math.min(0.78, other.x + passDir));
             }
-            if (distZ < 190 && bot.bumpBoostTimer <= 0) {
-              targetSpeed = Math.min(targetSpeed, other.speed * 0.92);
+            if (distZ < 100 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
+              targetSpeed = Math.min(targetSpeed, other.speed * 0.94);
             }
             break;
           }
         }
 
-        if (blocked && bot.speed > targetSpeed + 12 && bot.bumpBoostTimer <= 0) {
+        // Aplicação de aceleração e frenagem do Bot
+        if (blocked && bot.speed > targetSpeed + 12 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
           bot.speed = Math.max(bot.speed - 190 * dt, targetSpeed);
           bot.isBraking = true;
         } else {
           bot.isBraking = false;
           if (bot.speed < targetSpeed) {
-            const launchRate = (118 + bot.model.acceleration * 118) * dt;
+            const accelMul = bot.isNitro ? 2.0 : (1.0 + (0.45 * (bot.slipstreamIntensity || 0)));
+            const launchRate = (120 + bot.model.acceleration * 125) * accelMul * dt;
             bot.speed = Math.min(bot.speed + launchRate, targetSpeed);
-          } else if (bot.bumpBoostTimer <= 0) {
+          } else if (bot.bumpBoostTimer <= 0 && !bot.isNitro) {
             bot.speed = Math.max(bot.speed - 65 * dt, targetSpeed);
           }
         }
@@ -1751,7 +1914,7 @@
               fb.bot.steerAngle || 0,
               fb.bot.bodyColor,
               {
-                isNitro: false,
+                isNitro: !!fb.bot.isNitro,
                 wheelPhase: fb.bot.z * 0.035,
                 isNight,
                 speed: fb.bot.speed
@@ -1813,6 +1976,8 @@
         this.renderTrackSelect(ctx);
       } else if (this.state === 'CAR_SELECT') {
         this.renderCarSelect(ctx);
+      } else if (this.state === 'COLOR_SELECT') {
+        this.renderColorSelect(ctx);
       } else if (this.state === 'NAME_INPUT') {
         this.renderNameInput(ctx);
       } else if (this.state === 'RACE_SETUP') {
@@ -1952,7 +2117,7 @@
       if (!this.track) return;
       let seg = null;
       let segPerSec = 0;
-      if (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP') {
+      if (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP') {
         seg = this.findSegment(this.menuCameraZ);
         segPerSec = (this.state === 'MENU' ? 1100 : 850) / SEGMENT_LENGTH;
       } else if (this.player && (this.state === 'RACING' || this.state === 'COUNTDOWN')) {
@@ -1968,7 +2133,7 @@
       if (!E) return;
       const css = E.css;
       const S = E.s;
-      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP');
       const camZ = isAttract ? this.menuCameraZ : (this.player ? this.wrapZ(this.player.z - PLAYER_Z_OFFSET) : 0);
       const baseSeg = this.findSegment(camZ);
       const curveShift = baseSeg.curve * 2.0;
@@ -2656,7 +2821,7 @@
 
 
     renderRoad(ctx, def) {
-      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT');
       const p = isAttract ? { z: this.menuCameraZ, x: 0 } : (this.player || { z: 1600, x: 0 });
       const playerZ = this.wrapZ(p.z);
       // Quando o nosso carro bandeirou, a câmera PARA exatamente no local da bandeirada:
@@ -2818,7 +2983,7 @@
                   bot.steerAngle || 0,
                   bot.bodyColor,
                   {
-                    isNitro: false,
+                    isNitro: !!bot.isNitro,
                     wheelPhase: bot.z * 0.035,
                     isNight,
                     speed: bot.speed
@@ -4397,25 +4562,13 @@
 
       const gridBottom = gridY + gridH;
 
-      // Card central do showroom
+      // Card central do showroom dos carros
       const bW = touchSafe ? Math.min(W - 16, 260) : Math.min(W - 24, 320);
       const bH = touchSafe ? 116 : 128;
       const bX = Math.round((W - bW) / 2);
       const bY = gridBottom + (touchSafe ? 4 : 5);
 
-      // 10 Amostras de cores organizadas perfeitamente abaixo do carro
-      const numColors = CAR_COLORS.length;
-      const swY = bY + (touchSafe ? 65 : 74);
-      const swR = touchSafe ? 4.6 : 5.6;
-      const swGap = touchSafe ? 15.2 : 18.2;
-      const totalSwW = (numColors - 1) * swGap;
-      const swStartX = W / 2 - totalSwW / 2;
-      const sw = [];
-      for (let i = 0; i < numColors; i++) {
-        sw.push({ x: swStartX + i * swGap, y: swY, r: swR, i });
-      }
-
-      const btnW = touchSafe ? 86 : 98;
+      const btnW = touchSafe ? 92 : 108;
       const btnH = touchSafe ? 17 : 19;
       const btnY = bY + bH + (touchSafe ? 5 : 6);
       const btnBack = {
@@ -4430,7 +4583,49 @@
         w: btnW,
         h: btnH
       };
-      return { touchSafe, bW, bH, bX, bY, swY, sw, chips, btnBack, btnConfirm };
+      return { touchSafe, bW, bH, bX, bY, chips, btnBack, btnConfirm };
+    }
+
+    // Geometria da tela de Pintura e Seleção de Cor do Carro (Etapa 2)
+    getColorSelectLayout() {
+      const touchSafe = this.input.touchControlsVisible;
+      const W = INTERNAL_WIDTH;
+      const H = INTERNAL_HEIGHT;
+
+      // Card amplo e elegante de personalização e pintura
+      const bW = touchSafe ? Math.min(W - 16, 280) : Math.min(W - 24, 330);
+      const bH = touchSafe ? 134 : 148;
+      const bX = Math.round((W - bW) / 2);
+      const bY = touchSafe ? 18 : 20;
+
+      // 10 Amostras de cores amplas e confortáveis para toque e controle
+      const numColors = CAR_COLORS.length;
+      const swY = bY + (touchSafe ? 88 : 98);
+      const swR = touchSafe ? 6.2 : 7.6;
+      const swGap = touchSafe ? 19.5 : 23.5;
+      const totalSwW = (numColors - 1) * swGap;
+      const swStartX = W / 2 - totalSwW / 2;
+      const sw = [];
+      for (let i = 0; i < numColors; i++) {
+        sw.push({ x: swStartX + i * swGap, y: swY, r: swR, i });
+      }
+
+      const btnW = touchSafe ? 96 : 112;
+      const btnH = touchSafe ? 18 : 20;
+      const btnY = bY + bH + (touchSafe ? 6 : 7);
+      const btnBack = {
+        x: Math.round(bX),
+        y: btnY,
+        w: btnW,
+        h: btnH
+      };
+      const btnConfirm = {
+        x: Math.round(bX + bW - btnW),
+        y: btnY,
+        w: btnW,
+        h: btnH
+      };
+      return { touchSafe, bW, bH, bX, bY, sw, btnBack, btnConfirm };
     }
 
     // Geometria da tela "Preparar Corrida" (chips de clima/hora e de música)
@@ -5065,7 +5260,7 @@
       ctx.fillStyle = '#FFD700';
       ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`[ ${carIdxNum} / 20 ]  ${car.name} · ${color.name}`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 11 : 13));
+      ctx.fillText(`[ ${carIdxNum} / 20 ]  ${car.name}`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 11 : 13));
 
       // Botões laterais ◀ ▶ de navegação
       const pulseX = Math.sin(now * 0.006) * 2;
@@ -5105,42 +5300,12 @@
         }
       );
 
-      // Paleta com 10 cores em destaque
-      for (let k = 0; k < L.sw.length; k++) {
-        const s = L.sw[k];
-        const selected = (s.i === this.colorIndex);
-        if (selected) {
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.r + 3.2, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
-          ctx.fill();
-          ctx.strokeStyle = '#FFD700';
-          ctx.lineWidth = 2.0;
-          ctx.stroke();
-        }
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r + (selected ? 1.0 : 0), 0, Math.PI * 2);
-        ctx.fillStyle = CAR_COLORS[s.i].hex;
-        ctx.fill();
-        ctx.lineWidth = selected ? 1.5 : 0.9;
-        ctx.strokeStyle = selected ? '#FFFFFF' : 'rgba(200, 215, 230, 0.55)';
-        ctx.stroke();
-
-        // Ponto de brilho interno se selecionada
-        if (selected) {
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, 1.4, 0, Math.PI * 2);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fill();
-        }
-      }
-
       // Barras de estatísticas dinâmicas
       const statW = Math.floor((bW - 32) / 3);
       const s1 = bX + 10;
       const s2 = s1 + statW + 6;
       const s3 = s2 + statW + 6;
-      const statY = bY + (touchSafe ? 83 : 94);
+      const statY = bY + (touchSafe ? 76 : 86);
       this.drawStat(ctx, s1, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', statW);
       this.drawStat(ctx, s2, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', statW);
       this.drawStat(ctx, s3, statY, 'CONTROLE', car.handling, '#00E676', statW);
@@ -5149,7 +5314,7 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = '#B0BEC5';
       ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
-      ctx.fillText(car.desc, INTERNAL_WIDTH / 2, bY + (touchSafe ? 104 : 117));
+      ctx.fillText(car.desc, INTERNAL_WIDTH / 2, bY + (touchSafe ? 98 : 110));
 
       const blink = Math.floor(now / 380) % 2 === 0;
 
@@ -5169,7 +5334,180 @@
         ctx.fillText('◀ VOLTAR [B]', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 3);
       }
 
-      // BOTÃO CONFIRMAR ▶
+      // BOTÃO ESCOLHER COR ▶
+      const btnC = L.btnConfirm;
+      if (btnC) {
+        const confirmGrad = ctx.createLinearGradient(btnC.x, btnC.y, btnC.x, btnC.y + btnC.h);
+        confirmGrad.addColorStop(0, blink ? '#00E5FF' : '#00B0FF');
+        confirmGrad.addColorStop(1, blink ? '#0091EA' : '#005F9E');
+        ctx.fillStyle = confirmGrad;
+        ctx.fillRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.strokeStyle = blink ? '#FFFFFF' : '#FFD700';
+        ctx.lineWidth = 1.3;
+        ctx.strokeRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.fillStyle = '#060D1A';
+        ctx.font = touchSafe ? 'bold 7.8px monospace' : 'bold 8.8px monospace';
+        ctx.fillText('ESCOLHER COR [A] ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 3);
+      }
+
+      ctx.fillStyle = '#90A4AE';
+      ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
+      ctx.fillText(
+        touchSafe
+          ? '◄ ► ▲ ▼ TROCA CARRO | TOQUE NO CARRO | [3]/[A] ESCOLHER COR | [2]/[B] VOLTAR'
+          : '◄ ► ▲ ▼ NAVEGA NOS 20 CARROS | CLIQUE NO CARRO | [A] / ENTER ESCOLHER COR | [B] VOLTAR',
+        INTERNAL_WIDTH / 2,
+        touchSafe ? 193 : 209
+      );
+      ctx.restore();
+    }
+
+    // ========================================================
+    // RENDERIZAÇÃO DA ETAPA 2: ESCOLHA DE COR DO CARRO
+    // ========================================================
+    renderColorSelect(ctx) {
+      const L = this.getColorSelectLayout();
+      const touchSafe = L.touchSafe;
+
+      // Fundo translúcido deixando a pista rolar suavemente atrás da garagem
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.85)';
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = touchSafe ? 'bold 9px monospace' : 'bold 11px monospace';
+      ctx.fillText('GARAGEM LH44 — ESCOLHA A COR DA SUA MÁQUINA', INTERNAL_WIDTH / 2, touchSafe ? 11 : 12);
+
+      const car = CAR_MODELS[this.selectedCarIndex];
+      const color = CAR_COLORS[this.colorIndex];
+      const now = performance.now();
+      const { bW, bH, bX, bY, sw } = L;
+
+      // Card principal de personalização
+      const panelGrad = ctx.createLinearGradient(0, bY, 0, bY + bH);
+      panelGrad.addColorStop(0, 'rgba(16, 22, 36, 0.96)');
+      panelGrad.addColorStop(1, 'rgba(9, 13, 22, 0.98)');
+      ctx.fillStyle = panelGrad;
+      ctx.fillRect(bX, bY, bW, bH);
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(bX, bY, bW, bH);
+
+      // Título do carro e cor ativa em destaque
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 8.0px monospace' : 'bold 9.5px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`[ ETAPA 2/2 ]  ${car.name} · PINTURA RACING`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 12 : 14));
+
+      // Botões laterais ◀ ▶ de navegação de cor
+      const pulseX = Math.sin(now * 0.006) * 2;
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = touchSafe ? 'bold 16px monospace' : 'bold 20px monospace';
+      ctx.fillText('◀', bX - 14 - pulseX, bY + bH / 2 + 5);
+      ctx.fillText('▶', bX + bW + 14 + pulseX, bY + bH / 2 + 5);
+
+      // Plataforma iluminada centralizada
+      const platX = INTERNAL_WIDTH / 2;
+      const platY = bY + (touchSafe ? 54 : 62);
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
+      ctx.beginPath();
+      ctx.ellipse(platX, platY, touchSafe ? 62 : 78, touchSafe ? 11 : 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.55)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(platX, platY, touchSafe ? 56 : 72, touchSafe ? 9 : 11.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Carro em exibição na cor selecionada
+      car.render(
+        ctx,
+        platX,
+        bY + (touchSafe ? 36 : 42),
+        touchSafe ? 96 : 116,
+        touchSafe ? 60 : 72,
+        false,
+        0,
+        color.hex,
+        {
+          isNitro: false,
+          wheelPhase: 0,
+          isNight: true,
+          speed: 0
+        }
+      );
+
+      // Badge com o nome da cor selecionada
+      const colIdxNum = (this.colorIndex + 1).toString().padStart(2, '0');
+      const badgeY = bY + (touchSafe ? 72 : 82);
+      ctx.fillStyle = 'rgba(6, 12, 22, 0.85)';
+      ctx.fillRect(INTERNAL_WIDTH / 2 - 80, badgeY, 160, touchSafe ? 12 : 13);
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(INTERNAL_WIDTH / 2 - 80, badgeY, 160, touchSafe ? 12 : 13);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = `bold ${touchSafe ? 6.8 : 7.6}px monospace`;
+      ctx.fillText(`COR ${colIdxNum} / 10 · ${color.name.toUpperCase()}`, INTERNAL_WIDTH / 2, badgeY + (touchSafe ? 8.5 : 9.5));
+
+      // 10 Amostras circulares de cores com destaque pulsante
+      if (sw) {
+        for (let k = 0; k < sw.length; k++) {
+          const s = sw[k];
+          const selected = (s.i === this.colorIndex);
+
+          if (selected) {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r + 3.8, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0, 229, 255, 0.30)';
+            ctx.fill();
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 2.2;
+            ctx.stroke();
+          }
+
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r + (selected ? 1.0 : 0), 0, Math.PI * 2);
+          ctx.fillStyle = CAR_COLORS[s.i].hex;
+          ctx.fill();
+          ctx.lineWidth = selected ? 1.8 : 1.0;
+          ctx.strokeStyle = selected ? '#FFFFFF' : 'rgba(200, 215, 230, 0.55)';
+          ctx.stroke();
+
+          // Ponto de brilho interno se selecionada
+          if (selected) {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 1.8, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+          }
+
+          // Número do atalho (1 a 10) abaixo de cada amostra
+          ctx.fillStyle = selected ? '#FFD700' : '#64748B';
+          ctx.font = `bold ${touchSafe ? 5.2 : 6.0}px monospace`;
+          ctx.fillText(`${(s.i + 1) % 10}`, s.x, s.y + s.r + (touchSafe ? 8 : 9));
+        }
+      }
+
+      const blink = Math.floor(now / 380) % 2 === 0;
+
+      // BOTÃO ◀ VOLTAR AO CARRO
+      const btnB = L.btnBack;
+      if (btnB) {
+        const backGrad = ctx.createLinearGradient(btnB.x, btnB.y, btnB.x, btnB.y + btnB.h);
+        backGrad.addColorStop(0, '#2C3E50');
+        backGrad.addColorStop(1, '#1A252F');
+        ctx.fillStyle = backGrad;
+        ctx.fillRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.strokeStyle = '#E74C3C';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.fillStyle = '#ECF0F1';
+        ctx.font = touchSafe ? 'bold 7.8px monospace' : 'bold 8.8px monospace';
+        ctx.fillText('◀ VOLTAR [B]', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 3);
+      }
+
+      // BOTÃO CONFIRMAR COR ▶
       const btnC = L.btnConfirm;
       if (btnC) {
         const confirmGrad = ctx.createLinearGradient(btnC.x, btnC.y, btnC.x, btnC.y + btnC.h);
@@ -5189,8 +5527,8 @@
       ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
       ctx.fillText(
         touchSafe
-          ? '◄ ► ▲ ▼ TROCA CARRO | TOQUE NO CARRO / COR | [3]/[A] CONFIRMAR | [2]/[B] VOLTAR'
-          : '◄ ► ▲ ▼ NAVEGA NOS 20 CARROS | COR: CLIQUE, [C] OU [1-0] | [A] CONFIRMAR | [B] VOLTAR',
+          ? '◄ ► TROCA COR | TOQUE NA COR | [3]/[A] CONFIRMAR | [2]/[B] VOLTAR'
+          : '◄ ► ESCOLHE A COR | CLIQUE NA COR OU TECLAS [C]/[1-0] | [A] / ENTER CONFIRMAR | [B] VOLTAR',
         INTERNAL_WIDTH / 2,
         touchSafe ? 193 : 209
       );
