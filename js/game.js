@@ -119,6 +119,10 @@
       this.accumulator = 0;
       this.initSeasonRoster();
 
+      this.gameMode = 'CHAMPIONSHIP'; // 'CHAMPIONSHIP' ou 'QUICK_RACE'
+      this.selectedModeIndex = 0;     // 0: Campeonato F1, 1: Corrida Rápida
+      this.selectedQuickTrackIndex = 0; // 0: Brasil GP, 1: Serra, 2: Noite
+
       this.countdown = 3.6;
       this.startLightsStage = 0;
       this.greenLightsTimer = 0;
@@ -413,12 +417,173 @@
         }
 
         if (shouldAdvance) {
-          this.audio.stopTitleMusic();
           this.audio.playBeep(440, 0.08);
+          this.state = 'MODE_SELECT';
+          this.input.clearPulses();
+          return;
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      if (this.state === 'MODE_SELECT') {
+        if (this.nameWrapper) this.nameWrapper.classList.remove('show');
+        this.audio.silenceEffects();
+        this.audio.playTitleMusic();
+        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
+        this.cameraRoll = 0;
+        this.shake = 0;
+        this.updateSkyScroll(dt);
+        this.updateEnv(dt);
+
+        const L = this.getModeSelectLayout();
+        if (this.input.lastCanvasClick) {
+          const click = this.input.lastCanvasClick;
+          this.input.lastCanvasClick = null;
+
+          // Clique no botão VOLTAR
+          if (click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
+              click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
+            this.audio.playBeep(330, 0.06);
+            this.state = 'MENU';
+            this.input.clearPulses();
+            return;
+          }
+
+          // Clique no card 0 (Campeonato)
+          if (click.x >= L.card0.x && click.x <= L.card0.x + L.card0.w &&
+              click.y >= L.card0.y && click.y <= L.card0.y + L.card0.h) {
+            if (this.selectedModeIndex === 0) {
+              this.input.justPressedEnter = true;
+            } else {
+              this.selectedModeIndex = 0;
+              this.audio.playBeep(440, 0.06);
+            }
+          }
+
+          // Clique no card 1 (Corrida Rápida)
+          if (click.x >= L.card1.x && click.x <= L.card1.x + L.card1.w &&
+              click.y >= L.card1.y && click.y <= L.card1.y + L.card1.h) {
+            if (this.selectedModeIndex === 1) {
+              this.input.justPressedEnter = true;
+            } else {
+              this.selectedModeIndex = 1;
+              this.audio.playBeep(440, 0.06);
+            }
+          }
+
+          // Clique no botão CONFIRMAR
+          if (click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
+              click.y >= L.btnConfirm.y && click.y <= L.btnConfirm.y + L.btnConfirm.h) {
+            this.input.justPressedEnter = true;
+          }
+        }
+
+        if (this.input.justPressedLeft || this.input.justPressedRight || this.input.justPressedUp || this.input.justPressedDown) {
+          this.selectedModeIndex = this.selectedModeIndex === 0 ? 1 : 0;
+          this.audio.playBeep(440, 0.05);
+        }
+
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(523, 0.12);
+          if (this.selectedModeIndex === 0) {
+            this.gameMode = 'CHAMPIONSHIP';
+            this.trackIndex = 0;
+            this.loadTrack(0);
+            this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
+            this.state = 'CAR_SELECT';
+          } else {
+            this.gameMode = 'QUICK_RACE';
+            this.selectedQuickTrackIndex = 0;
+            this.trackIndex = 0;
+            this.loadTrack(0);
+            this.state = 'TRACK_SELECT';
+          }
+          this.input.clearPulses();
+          return;
+        }
+
+        if (this.input.justPressedEsc) {
+          this.audio.playBeep(330, 0.06);
+          this.state = 'MENU';
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      if (this.state === 'TRACK_SELECT') {
+        if (this.nameWrapper) this.nameWrapper.classList.remove('show');
+        this.audio.silenceEffects();
+        this.audio.playTitleMusic();
+        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
+        this.cameraRoll = 0;
+        this.shake = 0;
+        this.updateSkyScroll(dt);
+        this.updateEnv(dt);
+
+        const L = this.getTrackSelectLayout();
+        if (this.input.lastCanvasClick) {
+          const click = this.input.lastCanvasClick;
+          this.input.lastCanvasClick = null;
+
+          // Clique no botão VOLTAR
+          if (click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
+              click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
+            this.audio.playBeep(330, 0.06);
+            this.state = 'MODE_SELECT';
+            this.input.clearPulses();
+            return;
+          }
+
+          // Clique nos cards de pista
+          for (let k = 0; k < L.cards.length; k++) {
+            const c = L.cards[k];
+            if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
+              if (this.selectedQuickTrackIndex === c.i) {
+                this.input.justPressedEnter = true;
+              } else {
+                this.selectedQuickTrackIndex = c.i;
+                this.trackIndex = c.i;
+                this.loadTrack(c.i);
+                this.audio.playBeep(440, 0.06);
+              }
+              break;
+            }
+          }
+
+          // Clique no botão CONFIRMAR
+          if (click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
+              click.y >= L.btnConfirm.y && click.y <= L.btnConfirm.y + L.btnConfirm.h) {
+            this.input.justPressedEnter = true;
+          }
+        }
+
+        if (this.input.justPressedLeft || this.input.justPressedUp) {
+          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex - 1 + TRACK_DEFINITIONS.length) % TRACK_DEFINITIONS.length;
+          this.trackIndex = this.selectedQuickTrackIndex;
+          this.loadTrack(this.trackIndex);
+          this.audio.playBeep(440, 0.05);
+        }
+        if (this.input.justPressedRight || this.input.justPressedDown) {
+          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex + 1) % TRACK_DEFINITIONS.length;
+          this.trackIndex = this.selectedQuickTrackIndex;
+          this.loadTrack(this.trackIndex);
+          this.audio.playBeep(440, 0.05);
+        }
+
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(523, 0.12);
+          this.trackIndex = this.selectedQuickTrackIndex;
+          this.loadTrack(this.trackIndex);
           this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
           this.state = 'CAR_SELECT';
           this.input.clearPulses();
           return;
+        }
+
+        if (this.input.justPressedEsc) {
+          this.audio.playBeep(330, 0.06);
+          this.state = 'MODE_SELECT';
         }
         this.input.clearPulses();
         return;
@@ -443,7 +608,7 @@
           if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
               click.y >= btnBack.y && click.y <= btnBack.y + btnBack.h) {
             this.audio.playBeep(330, 0.06);
-            this.state = 'MENU';
+            this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
             this.input.clearPulses();
             return;
           }
@@ -515,7 +680,7 @@
         }
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = 'MENU';
+          this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
         }
         this.input.clearPulses();
         return;
@@ -757,7 +922,11 @@
         }
         if (this.input.justPressedEnter) {
           this.audio.playBeep(440, 0.1);
-          if (this.trackIndex < TRACK_DEFINITIONS.length - 1) {
+          if (this.gameMode === 'QUICK_RACE') {
+            this.state = 'MENU';
+            this.audio.musicPlaying = false;
+            this.audio.playTitleMusic();
+          } else if (this.trackIndex < TRACK_DEFINITIONS.length - 1) {
             this.loadTrack(this.trackIndex + 1);
             this.songIndex = this.trackIndex;
             this.startRaceCountdown();
@@ -1350,7 +1519,9 @@
         const pts = (pos < F1_POINTS.length) ? F1_POINTS[pos] : 0;
         car.racePos = pos + 1;
         car.racePoints = pts;
-        this.championshipPoints[car.id] += pts;
+        if (this.gameMode === 'CHAMPIONSHIP') {
+          this.championshipPoints[car.id] += pts;
+        }
       }
     }
 
@@ -1532,6 +1703,10 @@
 
       if (this.state === 'MENU') {
         this.renderMenu(ctx);
+      } else if (this.state === 'MODE_SELECT') {
+        this.renderModeSelect(ctx);
+      } else if (this.state === 'TRACK_SELECT') {
+        this.renderTrackSelect(ctx);
       } else if (this.state === 'CAR_SELECT') {
         this.renderCarSelect(ctx);
       } else if (this.state === 'NAME_INPUT') {
@@ -1673,7 +1848,7 @@
       if (!this.track) return;
       let seg = null;
       let segPerSec = 0;
-      if (this.state === 'MENU' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP') {
+      if (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP') {
         seg = this.findSegment(this.menuCameraZ);
         segPerSec = (this.state === 'MENU' ? 1100 : 850) / SEGMENT_LENGTH;
       } else if (this.player && (this.state === 'RACING' || this.state === 'COUNTDOWN')) {
@@ -1689,7 +1864,7 @@
       if (!E) return;
       const css = E.css;
       const S = E.s;
-      const isAttract = (this.state === 'MENU' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'RACE_SETUP');
       const camZ = isAttract ? this.menuCameraZ : (this.player ? this.wrapZ(this.player.z - PLAYER_Z_OFFSET) : 0);
       const baseSeg = this.findSegment(camZ);
       const curveShift = baseSeg.curve * 2.0;
@@ -2228,7 +2403,7 @@
 
 
     renderRoad(ctx, def) {
-      const isAttract = (this.state === 'MENU' || this.state === 'CAR_SELECT');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT');
       const p = isAttract ? { z: this.menuCameraZ, x: 0 } : (this.player || { z: 1600, x: 0 });
       const playerZ = this.wrapZ(p.z);
       // Quando o nosso carro bandeirou, a câmera PARA exatamente no local da bandeirada:
@@ -3610,6 +3785,47 @@
       ctx.restore();
     }
 
+    // Geometria da tela "Escolha de Modo de Jogo" (Campeonato vs Corrida Rápida)
+    getModeSelectLayout() {
+      const touchSafe = this.input.touchControlsVisible;
+      const cardW = touchSafe ? 152 : 166;
+      const cardH = touchSafe ? 122 : 138;
+      const cardY = touchSafe ? 34 : 36;
+      const gap = touchSafe ? 12 : 14;
+      const totalW = cardW * 2 + gap;
+      const startX = Math.round((INTERNAL_WIDTH - totalW) / 2);
+      const card0 = { x: startX, y: cardY, w: cardW, h: cardH };
+      const card1 = { x: startX + cardW + gap, y: cardY, w: cardW, h: cardH };
+      const btnW = touchSafe ? 86 : 98;
+      const btnH = touchSafe ? 18 : 20;
+      const btnY = touchSafe ? 168 : 184;
+      const btnBack = { x: startX, y: btnY, w: btnW, h: btnH };
+      const btnConfirm = { x: startX + totalW - btnW, y: btnY, w: btnW, h: btnH };
+      return { touchSafe, cardW, cardH, cardY, card0, card1, btnBack, btnConfirm };
+    }
+
+    // Geometria da tela "Escolha de Pista" para Corrida Rápida
+    getTrackSelectLayout() {
+      const touchSafe = this.input.touchControlsVisible;
+      const cardW = touchSafe ? 104 : 112;
+      const cardH = touchSafe ? 122 : 138;
+      const cardY = touchSafe ? 34 : 36;
+      const gap = touchSafe ? 6 : 8;
+      const totalW = cardW * 3 + gap * 2;
+      const startX = Math.round((INTERNAL_WIDTH - totalW) / 2);
+      const cards = [
+        { x: startX, y: cardY, w: cardW, h: cardH, i: 0 },
+        { x: startX + cardW + gap, y: cardY, w: cardW, h: cardH, i: 1 },
+        { x: startX + (cardW + gap) * 2, y: cardY, w: cardW, h: cardH, i: 2 }
+      ];
+      const btnW = touchSafe ? 86 : 98;
+      const btnH = touchSafe ? 18 : 20;
+      const btnY = touchSafe ? 168 : 184;
+      const btnBack = { x: startX, y: btnY, w: btnW, h: btnH };
+      const btnConfirm = { x: startX + totalW - btnW, y: btnY, w: btnW, h: btnH };
+      return { touchSafe, cardW, cardH, cardY, cards, btnBack, btnConfirm };
+    }
+
     // Geometria compartilhada da Garagem (render + botões Voltar / Confirmar + cores)
     getCarSelectLayout() {
       const touchSafe = this.input.touchControlsVisible;
@@ -3788,6 +4004,320 @@
       ctx.fillStyle = '#FFD700';
       ctx.font = touchSafe ? 'bold 6.5px monospace' : 'bold 7.5px monospace';
       ctx.fillText('Desenvolvido por Leandro Yata - 2026 - (75) 99190-2534', INTERNAL_WIDTH / 2, touchSafe ? 193 : 206);
+
+      ctx.restore();
+    }
+
+    renderModeSelect(ctx) {
+      const L = this.getModeSelectLayout();
+      const touchSafe = L.touchSafe;
+      const now = performance.now();
+
+      // Fundo escuro translúcido revelando a pista ao fundo
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.82)';
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
+      ctx.fillText('MODOS DE JOGO', INTERNAL_WIDTH / 2, touchSafe ? 19 : 23);
+
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.8px monospace';
+      ctx.fillText('SELECIONE O TIPO DE DISPUTA', INTERNAL_WIDTH / 2, touchSafe ? 29 : 33);
+
+      const modes = [
+        {
+          id: 0,
+          title: 'CAMPEONATO F1',
+          icon: '🏆',
+          badge: 'TEMPORADA COMPLETA',
+          color: '#FFD700',
+          lines: [
+            '• 3 ETAPAS OFICIAIS',
+            '• PONTUAÇÃO F1 (1º AO 10º)',
+            '• DISPUTA DO TÍTULO & PÓDIO'
+          ],
+          box: L.card0
+        },
+        {
+          id: 1,
+          title: 'CORRIDA RÁPIDA',
+          icon: '⚡',
+          badge: 'AÇÃO IMEDIATA',
+          color: '#00E5FF',
+          lines: [
+            '• ESCOLHA 1 CIRCUITO',
+            '• DUELO CONTRA 19 BOTS',
+            '• RESULTADO DIRETO'
+          ],
+          box: L.card1
+        }
+      ];
+
+      for (let m = 0; m < modes.length; m++) {
+        const item = modes[m];
+        const isSelected = (this.selectedModeIndex === item.id);
+        const { x, y, w, h } = item.box;
+
+        // Fundo do card
+        const cardGrad = ctx.createLinearGradient(x, y, x, y + h);
+        if (isSelected) {
+          cardGrad.addColorStop(0, 'rgba(18, 30, 52, 0.96)');
+          cardGrad.addColorStop(1, 'rgba(10, 16, 30, 0.98)');
+        } else {
+          cardGrad.addColorStop(0, 'rgba(12, 16, 26, 0.88)');
+          cardGrad.addColorStop(1, 'rgba(6, 9, 16, 0.92)');
+        }
+        ctx.fillStyle = cardGrad;
+        ctx.fillRect(x, y, w, h);
+
+        // Borda com brilho se selecionado
+        if (isSelected) {
+          ctx.strokeStyle = item.color;
+          ctx.lineWidth = 1.8;
+          ctx.strokeRect(x, y, w, h);
+
+          ctx.fillStyle = item.color;
+          ctx.fillRect(x + 2, y + 2, w - 4, 3);
+        } else {
+          ctx.strokeStyle = 'rgba(70, 90, 120, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, w, h);
+        }
+
+        // Tag superior
+        ctx.fillStyle = isSelected ? item.color : '#78909C';
+        ctx.font = 'bold 6.2px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`[ ${item.badge} ]`, x + w / 2, y + 14);
+
+        // Ícone grande
+        ctx.font = '18px monospace';
+        ctx.fillText(item.icon, x + w / 2, y + 36);
+
+        // Título do modo
+        ctx.fillStyle = isSelected ? '#FFFFFF' : '#B0BEC5';
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText(item.title, x + w / 2, y + 54);
+
+        // Linha divisória
+        ctx.fillStyle = isSelected ? item.color : 'rgba(100, 120, 150, 0.3)';
+        ctx.fillRect(x + 14, y + 60, w - 28, 1);
+
+        // Linhas de descrição
+        ctx.textAlign = 'left';
+        ctx.font = '6.8px monospace';
+        ctx.fillStyle = isSelected ? '#E2E8F0' : '#8898AA';
+        for (let l = 0; l < item.lines.length; l++) {
+          ctx.fillText(item.lines[l], x + 12, y + 74 + l * 13);
+        }
+
+        // Status no rodapé do card
+        ctx.textAlign = 'center';
+        if (isSelected) {
+          const blink = Math.floor(now / 320) % 2 === 0;
+          ctx.fillStyle = blink ? item.color : '#FFFFFF';
+          ctx.font = 'bold 7.2px monospace';
+          ctx.fillText('▶ SELECIONADO ◀', x + w / 2, y + h - 10);
+        } else {
+          ctx.fillStyle = '#64748B';
+          ctx.font = '6.5px monospace';
+          ctx.fillText('TOQUE PARA ESCOLHER', x + w / 2, y + h - 10);
+        }
+      }
+
+      // Botões inferiores: VOLTAR e CONFIRMAR
+      const btnB = L.btnBack;
+      if (btnB) {
+        ctx.fillStyle = '#1E293B';
+        ctx.fillRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.strokeStyle = '#EF4444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.fillStyle = '#EF4444';
+        ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.5px monospace';
+        ctx.fillText('◀ VOLTAR', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 2.5);
+      }
+
+      const btnC = L.btnConfirm;
+      if (btnC) {
+        ctx.fillStyle = '#065F46';
+        ctx.fillRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = touchSafe ? 'bold 7.2px monospace' : 'bold 8px monospace';
+        ctx.fillText('CONTINUAR ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 2.5);
+      }
+
+      ctx.restore();
+    }
+
+    renderTrackSelect(ctx) {
+      const L = this.getTrackSelectLayout();
+      const touchSafe = L.touchSafe;
+      const now = performance.now();
+
+      // Fundo escuro translúcido permitindo ver o circuito selecionado rolar atrás da tela!
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.80)';
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
+      ctx.fillText('CORRIDA RÁPIDA — CIRCUITO', INTERNAL_WIDTH / 2, touchSafe ? 19 : 23);
+
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.8px monospace';
+      ctx.fillText('ESCOLHA O AUTÓDROMO DA SUA CORRIDA AVULSA', INTERNAL_WIDTH / 2, touchSafe ? 29 : 33);
+
+      const trackInfo = [
+        {
+          id: 0,
+          flag: '🇧🇷',
+          name: 'BRASIL GP',
+          sub: 'INTERLAGOS • SP',
+          themeTag: 'CREPÚSCULO',
+          color: '#FEDD00',
+          lines: [
+            '• 3 VOLTAS',
+            '• PÔR DO SOL / ORLA',
+            '• S DO SENNA & RETAS'
+          ]
+        },
+        {
+          id: 1,
+          flag: '🏔️',
+          name: 'SERRA BRASIL',
+          sub: 'CATARINENSE • SC',
+          themeTag: 'MONTANHA',
+          color: '#F97316',
+          lines: [
+            '• 3 VOLTAS',
+            '• VIADUTOS ELEVADOS',
+            '• TÚNEL DE ROCHA'
+          ]
+        },
+        {
+          id: 2,
+          flag: '🌃',
+          name: 'NOITE URBANA',
+          sub: 'CYBER CITY GP',
+          themeTag: 'NOITE NEON',
+          color: '#00E5FF',
+          lines: [
+            '• 3 VOLTAS',
+            '• ARRANHA-CÉUS & LED',
+            '• FARÓIS & TÚNEL METRO'
+          ]
+        }
+      ];
+
+      for (let t = 0; t < L.cards.length; t++) {
+        const box = L.cards[t];
+        const info = trackInfo[t];
+        const isSelected = (this.selectedQuickTrackIndex === t);
+        const { x, y, w, h } = box;
+
+        // Fundo do card
+        const cardGrad = ctx.createLinearGradient(x, y, x, y + h);
+        if (isSelected) {
+          cardGrad.addColorStop(0, 'rgba(18, 30, 52, 0.96)');
+          cardGrad.addColorStop(1, 'rgba(10, 16, 30, 0.98)');
+        } else {
+          cardGrad.addColorStop(0, 'rgba(12, 16, 26, 0.88)');
+          cardGrad.addColorStop(1, 'rgba(6, 9, 16, 0.92)');
+        }
+        ctx.fillStyle = cardGrad;
+        ctx.fillRect(x, y, w, h);
+
+        if (isSelected) {
+          ctx.strokeStyle = info.color;
+          ctx.lineWidth = 1.8;
+          ctx.strokeRect(x, y, w, h);
+
+          ctx.fillStyle = info.color;
+          ctx.fillRect(x + 2, y + 2, w - 4, 3);
+        } else {
+          ctx.strokeStyle = 'rgba(70, 90, 120, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, w, h);
+        }
+
+        // Tag superior
+        ctx.fillStyle = isSelected ? info.color : '#78909C';
+        ctx.font = 'bold 6px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`[ ${info.themeTag} ]`, x + w / 2, y + 13);
+
+        // Bandeira / Ícone
+        ctx.font = '16px monospace';
+        ctx.fillText(info.flag, x + w / 2, y + 33);
+
+        // Nome da pista
+        ctx.fillStyle = isSelected ? '#FFFFFF' : '#B0BEC5';
+        ctx.font = 'bold 8px monospace';
+        ctx.fillText(info.name, x + w / 2, y + 49);
+
+        // Localização / Subtítulo
+        ctx.fillStyle = isSelected ? info.color : '#78909C';
+        ctx.font = 'bold 6.2px monospace';
+        ctx.fillText(info.sub, x + w / 2, y + 59);
+
+        // Linha divisória
+        ctx.fillStyle = isSelected ? info.color : 'rgba(100, 120, 150, 0.3)';
+        ctx.fillRect(x + 8, y + 64, w - 16, 1);
+
+        // Linhas de detalhe
+        ctx.textAlign = 'left';
+        ctx.font = '6.4px monospace';
+        ctx.fillStyle = isSelected ? '#E2E8F0' : '#8898AA';
+        for (let l = 0; l < info.lines.length; l++) {
+          ctx.fillText(info.lines[l], x + 8, y + 78 + l * 13);
+        }
+
+        // Rodapé do card
+        ctx.textAlign = 'center';
+        if (isSelected) {
+          const blink = Math.floor(now / 320) % 2 === 0;
+          ctx.fillStyle = blink ? info.color : '#FFFFFF';
+          ctx.font = 'bold 6.8px monospace';
+          ctx.fillText('▶ ESCOLHIDA ◀', x + w / 2, y + h - 10);
+        } else {
+          ctx.fillStyle = '#64748B';
+          ctx.font = '6px monospace';
+          ctx.fillText('TOQUE P/ ESCOLHER', x + w / 2, y + h - 10);
+        }
+      }
+
+      // Botões inferiores: VOLTAR e CONFIRMAR
+      const btnB = L.btnBack;
+      if (btnB) {
+        ctx.fillStyle = '#1E293B';
+        ctx.fillRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.strokeStyle = '#EF4444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(btnB.x, btnB.y, btnB.w, btnB.h);
+        ctx.fillStyle = '#EF4444';
+        ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.5px monospace';
+        ctx.fillText('◀ VOLTAR', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 2.5);
+      }
+
+      const btnC = L.btnConfirm;
+      if (btnC) {
+        ctx.fillStyle = '#065F46';
+        ctx.fillRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(btnC.x, btnC.y, btnC.w, btnC.h);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = touchSafe ? 'bold 7.2px monospace' : 'bold 8px monospace';
+        ctx.fillText('ESCOLHER CARRO ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 2.5);
+      }
 
       ctx.restore();
     }
@@ -4043,8 +4573,14 @@
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00E5FF';
-      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 14px monospace';
-      ctx.fillText('PREPARAR CORRIDA', INTERNAL_WIDTH / 2, touchSafe ? 19 : 25);
+      ctx.font = touchSafe ? 'bold 10px monospace' : 'bold 13px monospace';
+      const def = TRACK_DEFINITIONS[this.trackIndex];
+      const modeBadge = (this.gameMode === 'QUICK_RACE') ? '⚡ CORRIDA RÁPIDA' : `🏆 CAMPEONATO F1 (${this.trackIndex + 1}/${TRACK_DEFINITIONS.length})`;
+      ctx.fillText(`PREPARAR — ${modeBadge}`, INTERNAL_WIDTH / 2, touchSafe ? 16 : 20);
+
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 6.5px monospace' : 'bold 7.5px monospace';
+      ctx.fillText(`CIRCUITO: ${def.name.toUpperCase()} (3 VOLTAS)`, INTERNAL_WIDTH / 2, touchSafe ? 26 : 31);
 
       // Grupo 1: horario / clima
       ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
@@ -4204,11 +4740,17 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFD700';
       ctx.font = touchSafe ? 'bold 10.5px monospace' : 'bold 12px monospace';
-      ctx.fillText(`🏁 BANDEIRADA FINAL — ${def.name}`, INTERNAL_WIDTH / 2, 16);
+      const resultTitle = (this.gameMode === 'QUICK_RACE')
+        ? `🏁 BANDEIRADA — CORRIDA RÁPIDA (${def.name})`
+        : `🏁 BANDEIRADA FINAL — ${def.name}`;
+      ctx.fillText(resultTitle, INTERNAL_WIDTH / 2, 16);
 
       ctx.fillStyle = '#00E5FF';
       ctx.font = 'bold 7.2px monospace';
-      ctx.fillText('CLASSIFICAÇÃO OFICIAL & PONTUAÇÃO F1 (1º AO 10º)', INTERNAL_WIDTH / 2, 26);
+      const resultSubtitle = (this.gameMode === 'QUICK_RACE')
+        ? 'CLASSIFICAÇÃO OFICIAL DA PROVA (1º AO 20º)'
+        : 'CLASSIFICAÇÃO OFICIAL & PONTUAÇÃO F1 (1º AO 10º)';
+      ctx.fillText(resultSubtitle, INTERNAL_WIDTH / 2, 26);
 
       const ranked = this.lastRacePositions || this.cars;
       const colW = Math.min(182, Math.floor((INTERNAL_WIDTH - 20) / 2));
@@ -4303,17 +4845,27 @@
 
       ctx.textAlign = 'center';
       ctx.font = 'bold 7.8px monospace';
-      ctx.fillStyle = pPts > 0 ? '#69F0AE' : '#FFB74D';
-      ctx.fillText(`SEU RESULTADO: ${pRank}º LUGAR (+${pPts} PTS)  |  TOTAL NO CAMPEONATO: ${pTotal} PTS`, INTERNAL_WIDTH / 2, 178);
+      if (this.gameMode === 'QUICK_RACE') {
+        ctx.fillStyle = pRank <= 3 ? '#69F0AE' : '#FFD700';
+        ctx.fillText(`SEU RESULTADO: ${pRank}º LUGAR  |  CORRIDA RÁPIDA FINALIZADA!`, INTERNAL_WIDTH / 2, 178);
+      } else {
+        ctx.fillStyle = pPts > 0 ? '#69F0AE' : '#FFB74D';
+        ctx.fillText(`SEU RESULTADO: ${pRank}º LUGAR (+${pPts} PTS)  |  TOTAL NO CAMPEONATO: ${pTotal} PTS`, INTERNAL_WIDTH / 2, 178);
+      }
 
       const blink = Math.floor(performance.now() / 400) % 2 === 0;
       if (blink) {
         ctx.fillStyle = '#FFD700';
         ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9.5px monospace';
-        const hasNext = (this.trackIndex < TRACK_DEFINITIONS.length - 1);
-        const nextPrompt = touchSafe
-          ? (hasNext ? 'TOQUE / [3] — PRÓXIMA ETAPA' : 'TOQUE / [3] — PÓDIO FINAL')
-          : (hasNext ? 'PRESSIONE [ENTER] PARA A PRÓXIMA ETAPA' : 'PRESSIONE [ENTER] PARA VER O GRANDE PÓDIO E CAMPEÃO');
+        let nextPrompt;
+        if (this.gameMode === 'QUICK_RACE') {
+          nextPrompt = touchSafe ? 'TOQUE / [3] — VOLTAR AO MENU' : 'PRESSIONE [ENTER] PARA VOLTAR AO MENU';
+        } else {
+          const hasNext = (this.trackIndex < TRACK_DEFINITIONS.length - 1);
+          nextPrompt = touchSafe
+            ? (hasNext ? 'TOQUE / [3] — PRÓXIMA ETAPA' : 'TOQUE / [3] — PÓDIO FINAL')
+            : (hasNext ? 'PRESSIONE [ENTER] PARA A PRÓXIMA ETAPA' : 'PRESSIONE [ENTER] PARA VER O GRANDE PÓDIO E CAMPEÃO');
+        }
         ctx.fillText(nextPrompt, INTERNAL_WIDTH / 2, 196);
       }
       ctx.restore();
