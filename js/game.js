@@ -1389,8 +1389,10 @@
       this.cameraRoll += (targetRoll - this.cameraRoll) * 6.5 * dt;
 
       if (p.isNitro) {
-        this.particlePool.spawn(p.x - 0.07, 0.02, p.z, (Math.random() - 0.5) * 0.22, -0.15, 0.16, '#00B4D8');
-        this.particlePool.spawn(p.x + 0.07, 0.02, p.z, (Math.random() - 0.5) * 0.22, -0.15, 0.16, '#FFF');
+        if (Math.random() < 0.65) {
+          this.particlePool.spawn(p.x - 0.05, 0.01, p.z, (Math.random() - 0.5) * 0.08, -0.10, 0.12, '#00E5FF');
+          this.particlePool.spawn(p.x + 0.05, 0.01, p.z, (Math.random() - 0.5) * 0.08, -0.10, 0.12, 'rgba(255, 255, 255, 0.75)');
+        }
       } else if (p.inSlipstream && Math.random() < 0.45) {
         this.particlePool.spawn(p.x + (Math.random() - 0.5) * 0.28, -0.12, p.z + 40, 0, -0.05, 0.14, 'rgba(210, 245, 255, 0.45)');
       }
@@ -5300,19 +5302,21 @@
       ctx.ellipse(platX, platY, touchSafe ? 48 : 62, touchSafe ? 7.0 : 8.8, 0, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Carro em exibição perfeitamente alinhado e reto na plataforma (retrovisores nítidos de ambos os lados)
+      // Carro em exibição na plataforma giratória charmosa movimentando suavemente de um lado para o outro
+      const showcaseSteer = Math.sin(now * 0.0020) * 0.76;
+      const showcaseBrake = (Math.floor(now / 1800) % 4 === 0);
       car.render(
         ctx,
         platX,
         bY + (touchSafe ? 25 : 29),
         touchSafe ? 84 : 98,
         touchSafe ? 52 : 62,
-        false,
-        0,
+        showcaseBrake,
+        showcaseSteer,
         color.hex,
         {
           isNitro: false,
-          wheelPhase: 0,
+          wheelPhase: now * 0.008,
           isNight: true,
           speed: 0
         }
@@ -5453,19 +5457,21 @@
       ctx.ellipse(platX, platY, touchSafe ? 56 : 72, touchSafe ? 9 : 11.5, 0, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Carro em exibição na cor selecionada (espaço superior desobstruído de textos)
+      // Carro em exibição na cor selecionada com movimento suave de um lado para o outro
+      const showcaseSteerColor = Math.sin(now * 0.0020) * 0.76;
+      const showcaseBrakeColor = (Math.floor(now / 1800) % 4 === 0);
       car.render(
         ctx,
         platX,
         bY + (touchSafe ? 33 : 39),
         touchSafe ? 96 : 116,
         touchSafe ? 60 : 72,
-        false,
-        0,
+        showcaseBrakeColor,
+        showcaseSteerColor,
         color.hex,
         {
           isNitro: false,
-          wheelPhase: 0,
+          wheelPhase: now * 0.008,
           isNight: true,
           speed: 0
         }

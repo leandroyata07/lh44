@@ -495,18 +495,19 @@
 
     drawNitroFlame(ctx, ex, ey, r, isNitro) {
       if (!isNitro) return;
-      const flick = 0.88 + Math.random() * 0.38;
-      ctx.fillStyle = 'rgba(0, 165, 255, 0.48)';
+      const flick = 0.85 + Math.random() * 0.30;
+      // Labareda ciano discreta e estilosa saindo do bocal do escapamento
+      ctx.fillStyle = 'rgba(0, 180, 255, 0.45)';
       ctx.beginPath();
-      ctx.ellipse(ex, ey + r * 1.55 * flick, r * 1.4, r * 2.4 * flick, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex, ey + r * 1.25 * flick, r * 0.72, r * 1.35 * flick, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#00E5FF';
       ctx.beginPath();
-      ctx.ellipse(ex, ey + r * 1.0 * flick, r * 0.92, r * 1.55 * flick, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex, ey + r * 0.80 * flick, r * 0.46, r * 0.88 * flick, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
-      ctx.ellipse(ex, ey + r * 0.42, r * 0.50, r * 0.82, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex, ey + r * 0.35, r * 0.24, r * 0.42, 0, 0, Math.PI * 2);
       ctx.fill();
     },
 
@@ -628,7 +629,7 @@
         const rxShift = -turn * 4.5;
         const pipes = model.exhaustPipes;
         for (let i = 0; i < pipes.length; i++) {
-          this.drawNitroFlame(ctx, (pipes[i][0] + rxShift) * sx, pipes[i][1] * sy, Math.max(2, w * 0.042), true);
+          this.drawNitroFlame(ctx, (pipes[i][0] + rxShift) * sx, pipes[i][1] * sy, Math.max(1.1, w * 0.020), true);
         }
       }
 
