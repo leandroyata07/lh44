@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>LH44 - Low to High Speed</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="viewport">
+    <canvas id="gameCanvas" width="384" height="216"></canvas>
+    <div class="scanlines"></div>
+    <div class="crt-vignette"></div>
+    <!-- Entrada do Nome do Piloto -->
+    <div id="player-name-wrapper">
+      <input id="player-name-input" type="text" maxlength="12" value="JOGADOR" placeholder="JOGADOR" spellcheck="false" autocomplete="off" />
+    </div>
+
+    <div id="top-utility-bar">
+      <button class="util-btn" id="fullscreen-btn" title="Alternar Tela Cheia">⛶ TELA CHEIA</button>
+      <button class="util-btn" id="opacity-toggle-btn" title="Configurar Controles e Opacidade">🎛️ CONTROLES</button>
+      <button class="util-btn" id="pause-touch-btn" title="Pausar / Continuar">⏸</button>
+    </div>
+
+    <div id="opacity-panel">
+      <div class="panel-header">
+        <span>🎮 CONTROLES &amp; OPACIDADE</span>
+        <button class="panel-close" id="opacity-close-btn">✕</button>
+      </div>
+
+      <div class="opacity-row">
+        <div class="opacity-label-line">
+          <span>DIRECIONAL (CRUZ SNES)</span>
+          <span class="opacity-val" id="dpad-opacity-val">78%</span>
+        </div>
+        <div class="slider-controls">
+          <button class="step-btn" id="dpad-minus" type="button">−</button>
+          <div class="custom-slider" id="dpad-slider">
+            <div class="custom-slider-track">
+              <div class="custom-slider-fill" id="dpad-slider-fill"></div>
+            </div>
+            <div class="custom-slider-thumb" id="dpad-slider-thumb"></div>
+          </div>
+          <button class="step-btn" id="dpad-plus" type="button">+</button>
+        </div>
+      </div>
+
+      <div class="opacity-row">
+        <div class="opacity-label-line">
+          <span>BOTÕES (1, 2, 3)</span>
+          <span class="opacity-val" id="btns-opacity-val">78%</span>
+        </div>
+        <div class="slider-controls">
+          <button class="step-btn" id="btns-minus" type="button">−</button>
+          <div class="custom-slider" id="btns-slider">
+            <div class="custom-slider-track">
+              <div class="custom-slider-fill" id="btns-slider-fill"></div>
+            </div>
+            <div class="custom-slider-thumb" id="btns-slider-thumb"></div>
+          </div>
+          <button class="step-btn" id="btns-plus" type="button">+</button>
+        </div>
+      </div>
+
+      <div class="preset-row">
+        <button class="preset-btn" data-preset="0.25" type="button">25%</button>
+        <button class="preset-btn" data-preset="0.50" type="button">50%</button>
+        <button class="preset-btn" data-preset="0.75" type="button">75%</button>
+        <button class="preset-btn" data-preset="1.00" type="button">100%</button>
+      </div>
+
+      <div class="panel-footer-actions">
+        <button class="panel-action-btn" id="touch-toggle-btn" type="button">CONTROLES: ON</button>
+        <button class="panel-action-btn" id="panel-fullscreen-btn" type="button">⛶ TELA CHEIA</button>
+      </div>
+    </div>
+
+    <div id="touch-controls">
+      <!-- Canto Inferior Esquerdo: 4 Direções em Cruz Estilo SNES -->
+      <div id="dpad-cluster">
+        <div id="dpad-cross">
+          <div class="dpad-arm" id="dpad-up">▲</div>
+          <div class="dpad-arm" id="dpad-left">◀</div>
+          <div id="dpad-center"></div>
+          <div class="dpad-arm" id="dpad-right">▶</div>
+          <div class="dpad-arm" id="dpad-down">▼</div>
+        </div>
+      </div>
+
+      <!-- Canto Inferior Direito: Botões 1 (Nitro), 2 (Freia), 3 (Acelera) -->
+      <div id="buttons-cluster">
+        <div class="snes-btn" id="btn-1">
+          <span class="btn-num">1</span>
+          <span class="btn-sub">NITRO</span>
+        </div>
+        <div class="snes-btn" id="btn-2">
+          <span class="btn-num">2</span>
+          <span class="btn-sub">FREIA</span>
+        </div>
+        <div class="snes-btn" id="btn-3">
+          <span class="btn-num">3</span>
+          <span class="btn-sub">ACELERA</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts modulares do jogo (Zero dependências, 100% compatível com GitHub Pages e execução local) -->
+  <script src="js/constants.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/cars.js"></script>
+  <script src="js/tracks.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
