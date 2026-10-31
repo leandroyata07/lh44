@@ -1232,26 +1232,27 @@
         }
 
       // Detecção de Vácuo (Slipstream) progressivo e gradual:
-      // Inicia suavemente a ~480 unidades (~9-10 carros) e atinge o ápice de 100% de sucção
-      // na distância de dois carros à frente (<= 95 unidades), crescendo gradativamente!
+      // Inicia suavemente a até 1500 unidades de distância (visível na reta) e atinge o ápice de 100%
+      // a partir de dois carros à frente (<= 350 unidades), inclusive colado no para-choque!
       p.inSlipstream = false;
       p.slipstreamIntensity = 0;
       p.slipstreamTarget = null;
-      if (this.state === 'RACING' && p.speed > 42) {
+      if (this.state === 'RACING' && p.speed > 35) {
         let bestIntensity = 0;
         let bestTarget = null;
         for (let i = 0; i < this.cars.length; i++) {
           const other = this.cars[i];
           if (other.isPlayer) continue;
           const aheadDz = this.shortestDeltaZ(other.z, p.z);
-          if (aheadDz > 38 && aheadDz < 480) {
+          if (aheadDz >= -15 && aheadDz <= 1500) {
             let distW = 0;
-            if (aheadDz <= 95) {
+            if (aheadDz <= 350) {
               distW = 1.0;
             } else {
-              distW = Math.pow(1.0 - ((aheadDz - 95) / (480 - 95)), 1.20);
+              const progress = (aheadDz - 350) / (1500 - 350);
+              distW = Math.pow(1.0 - progress, 1.15);
             }
-            const maxLat = 0.44 + 0.16 * (aheadDz / 480);
+            const maxLat = 0.55 + 0.35 * (Math.max(0, aheadDz) / 1500);
             const latDiff = Math.abs(other.x - p.x);
             if (latDiff < maxLat) {
               const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1263,7 +1264,7 @@
             }
           }
         }
-        if (bestIntensity > 0.03) {
+        if (bestIntensity > 0.02) {
           p.inSlipstream = true;
           p.slipstreamIntensity = bestIntensity;
           p.slipstreamTarget = bestTarget;
@@ -1497,15 +1498,15 @@
         bot.slipstreamIntensity = 0;
         let leadCar = null;
         let leadDist = 9999;
-        if (this.state === 'RACING' && bot.speed > 40) {
+        if (this.state === 'RACING' && bot.speed > 35) {
           let bestIntensity = 0;
           for (let k = 0; k < this.cars.length; k++) {
             if (i === k) continue;
             const other = this.cars[k];
             const aheadDz = this.shortestDeltaZ(other.z, bot.z);
-            if (aheadDz > 38 && aheadDz < 480) {
-              const distW = (aheadDz <= 95) ? 1.0 : Math.pow(1.0 - ((aheadDz - 95) / (480 - 95)), 1.20);
-              const maxLat = 0.44 + 0.16 * (aheadDz / 480);
+            if (aheadDz >= -15 && aheadDz <= 1500) {
+              const distW = (aheadDz <= 350) ? 1.0 : Math.pow(1.0 - ((aheadDz - 350) / (1500 - 350)), 1.15);
+              const maxLat = 0.55 + 0.35 * (Math.max(0, aheadDz) / 1500);
               const latDiff = Math.abs(other.x - bot.x);
               if (latDiff < maxLat) {
                 const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1513,12 +1514,12 @@
                 if (intensity > bestIntensity) {
                   bestIntensity = intensity;
                   leadCar = other;
-                  leadDist = aheadDz;
+                  leadDist = Math.max(0, aheadDz);
                 }
               }
             }
           }
-          if (bestIntensity > 0.03) {
+          if (bestIntensity > 0.02) {
             bot.inSlipstream = true;
             bot.slipstreamIntensity = bestIntensity;
           }
@@ -5184,6 +5185,25 @@
       ctx.restore();
     }
 
+    wrapText(ctx, text, maxWidth) {
+      if (!text) return [];
+      const words = text.split(' ');
+      const lines = [];
+      let currentLine = '';
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (ctx.measureText(testLine).width <= maxWidth) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+      return lines;
+    }
+
     renderCarSelect(ctx) {
       const L = this.getCarSelectLayout();
       const touchSafe = L.touchSafe;
@@ -5255,13 +5275,6 @@
       ctx.lineWidth = 1.1;
       ctx.strokeRect(bX, bY, bW, bH);
 
-      // Identificação e número do carro selecionado
-      const carIdxNum = (this.selectedCarIndex + 1).toString().padStart(2, '0');
-      ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`[ ${carIdxNum} / 20 ]  ${car.name}`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 11 : 13));
-
       // Botões laterais ◀ ▶ de navegação
       const pulseX = Math.sin(now * 0.006) * 2;
       ctx.fillStyle = '#00E5FF';
@@ -5271,22 +5284,22 @@
 
       // Plataforma iluminada centralizada
       const platX = INTERNAL_WIDTH / 2;
-      const platY = bY + (touchSafe ? 44 : 50);
+      const platY = bY + (touchSafe ? 38 : 43);
       ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
       ctx.beginPath();
-      ctx.ellipse(platX, platY, touchSafe ? 52 : 66, touchSafe ? 9.0 : 11.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(platX, platY, touchSafe ? 52 : 66, touchSafe ? 8.5 : 10.5, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(platX, platY, touchSafe ? 48 : 62, touchSafe ? 7.5 : 9.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(platX, platY, touchSafe ? 48 : 62, touchSafe ? 7.0 : 8.8, 0, 0, Math.PI * 2);
       ctx.stroke();
 
       // Carro em exibição perfeitamente alinhado e reto na plataforma (retrovisores nítidos de ambos os lados)
       car.render(
         ctx,
         platX,
-        bY + (touchSafe ? 30 : 35),
+        bY + (touchSafe ? 25 : 29),
         touchSafe ? 84 : 98,
         touchSafe ? 52 : 62,
         false,
@@ -5300,21 +5313,42 @@
         }
       );
 
+      // Identificação e número do carro selecionado posicionado com folga e destaque ABAIXO do carro (sem invadir tetos ou escadas)
+      const carIdxNum = (this.selectedCarIndex + 1).toString().padStart(2, '0');
+      const badgeTitleY = bY + (touchSafe ? 53 : 60);
+      const badgeTitleW = Math.min(bW - 24, 200);
+      const badgeTitleH = touchSafe ? 11 : 12;
+      ctx.fillStyle = 'rgba(6, 12, 22, 0.88)';
+      ctx.fillRect(INTERNAL_WIDTH / 2 - badgeTitleW / 2, badgeTitleY - badgeTitleH + 2.5, badgeTitleW, badgeTitleH);
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.55)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(INTERNAL_WIDTH / 2 - badgeTitleW / 2, badgeTitleY - badgeTitleH + 2.5, badgeTitleW, badgeTitleH);
+
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`[ ${carIdxNum} / 20 ]  ${car.name}`, INTERNAL_WIDTH / 2, badgeTitleY);
+
       // Barras de estatísticas dinâmicas
       const statW = Math.floor((bW - 32) / 3);
       const s1 = bX + 10;
       const s2 = s1 + statW + 6;
       const s3 = s2 + statW + 6;
-      const statY = bY + (touchSafe ? 76 : 86);
+      const statY = bY + (touchSafe ? 69 : 78);
       this.drawStat(ctx, s1, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', statW);
       this.drawStat(ctx, s2, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', statW);
       this.drawStat(ctx, s3, statY, 'CONTROLE', car.handling, '#00E676', statW);
 
-      // Descrição do carro
+      // Descrição do carro com quebra automática de linha contida estritamente dentro do retângulo azul
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#B0BEC5';
-      ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
-      ctx.fillText(car.desc, INTERNAL_WIDTH / 2, bY + (touchSafe ? 98 : 110));
+      ctx.fillStyle = '#CFD8DC';
+      ctx.font = touchSafe ? '5.4px monospace' : '6.4px monospace';
+      const descLines = this.wrapText(ctx, car.desc, bW - 24);
+      const descLineH = touchSafe ? 7.2 : 8.4;
+      const descStartY = bY + (touchSafe ? 88 : 98);
+      for (let li = 0; li < descLines.length; li++) {
+        ctx.fillText(descLines[li], INTERNAL_WIDTH / 2, descStartY + li * descLineH);
+      }
 
       const blink = Math.floor(now / 380) % 2 === 0;
 
@@ -5394,12 +5428,6 @@
       ctx.lineWidth = 1.2;
       ctx.strokeRect(bX, bY, bW, bH);
 
-      // Título do carro e cor ativa em destaque
-      ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 8.0px monospace' : 'bold 9.5px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`[ ETAPA 2/2 ]  ${car.name} · PINTURA RACING`, INTERNAL_WIDTH / 2, bY + (touchSafe ? 12 : 14));
-
       // Botões laterais ◀ ▶ de navegação de cor
       const pulseX = Math.sin(now * 0.006) * 2;
       ctx.fillStyle = '#00E5FF';
@@ -5409,7 +5437,7 @@
 
       // Plataforma iluminada centralizada
       const platX = INTERNAL_WIDTH / 2;
-      const platY = bY + (touchSafe ? 54 : 62);
+      const platY = bY + (touchSafe ? 50 : 58);
       ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
       ctx.beginPath();
       ctx.ellipse(platX, platY, touchSafe ? 62 : 78, touchSafe ? 11 : 14, 0, 0, Math.PI * 2);
@@ -5420,11 +5448,11 @@
       ctx.ellipse(platX, platY, touchSafe ? 56 : 72, touchSafe ? 9 : 11.5, 0, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Carro em exibição na cor selecionada
+      // Carro em exibição na cor selecionada (espaço superior desobstruído de textos)
       car.render(
         ctx,
         platX,
-        bY + (touchSafe ? 36 : 42),
+        bY + (touchSafe ? 33 : 39),
         touchSafe ? 96 : 116,
         touchSafe ? 60 : 72,
         false,
@@ -5438,17 +5466,19 @@
         }
       );
 
-      // Badge com o nome da cor selecionada
+      // Badge com o nome do carro e cor selecionada (posicionado com segurança abaixo da plataforma)
       const colIdxNum = (this.colorIndex + 1).toString().padStart(2, '0');
-      const badgeY = bY + (touchSafe ? 72 : 82);
-      ctx.fillStyle = 'rgba(6, 12, 22, 0.85)';
-      ctx.fillRect(INTERNAL_WIDTH / 2 - 80, badgeY, 160, touchSafe ? 12 : 13);
+      const badgeY = bY + (touchSafe ? 69 : 79);
+      const badgeW = Math.min(bW - 24, 215);
+      const badgeH = touchSafe ? 12 : 13.5;
+      ctx.fillStyle = 'rgba(6, 12, 22, 0.88)';
+      ctx.fillRect(INTERNAL_WIDTH / 2 - badgeW / 2, badgeY, badgeW, badgeH);
       ctx.strokeStyle = '#00E5FF';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(INTERNAL_WIDTH / 2 - 80, badgeY, 160, touchSafe ? 12 : 13);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = `bold ${touchSafe ? 6.8 : 7.6}px monospace`;
-      ctx.fillText(`COR ${colIdxNum} / 10 · ${color.name.toUpperCase()}`, INTERNAL_WIDTH / 2, badgeY + (touchSafe ? 8.5 : 9.5));
+      ctx.lineWidth = 0.85;
+      ctx.strokeRect(INTERNAL_WIDTH / 2 - badgeW / 2, badgeY, badgeW, badgeH);
+      ctx.fillStyle = '#FFD700';
+      ctx.font = `bold ${touchSafe ? 6.4 : 7.4}px monospace`;
+      ctx.fillText(`[ ETAPA 2/2 ]  ${car.name} · COR ${colIdxNum}/10 (${color.name.toUpperCase()})`, INTERNAL_WIDTH / 2, badgeY + (touchSafe ? 8.6 : 9.8));
 
       // 10 Amostras circulares de cores com destaque pulsante
       if (sw) {
