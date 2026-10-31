@@ -494,6 +494,68 @@
       ctx.fill();
     },
 
+    // Coordenadas EXATAS da borracha visível dos pneus traseiros (abaixo do para-choque)
+    // Garantia total: NUNCA invade o para-choque nem altera o tamanho dos pneus
+    TIRE_SPECS: {
+      uno:      { lx: 30.5, rx: 21.0, y: 20.8, w: 9.5,  h: 3.4 },
+      fusca:    { lx: 29.5, rx: 20.7, y: 20.2, w: 8.8,  h: 3.8 },
+      peugeot:  { lx: 31.6, rx: 21.4, y: 20.2, w: 10.2, h: 3.8 },
+      hb20:     { lx: 31.8, rx: 21.4, y: 20.4, w: 10.4, h: 3.6 },
+      opala:    { lx: 34.0, rx: 22.5, y: 19.8, w: 11.5, h: 4.4 },
+      gol:      { lx: 31.8, rx: 22.0, y: 20.2, w: 9.8,  h: 3.6 },
+      chevette: { lx: 31.0, rx: 21.8, y: 20.0, w: 9.2,  h: 4.0 },
+      brasilia: { lx: 31.5, rx: 22.0, y: 20.2, w: 9.4,  h: 3.8 }
+    },
+
+    // Efeito discreto de movimento/rolamento APENAS na borracha dos pneus traseiros
+    drawWheelMotionEffect(ctx, model, w, h, turn, phase, spd) {
+      if (spd < 3) return; // Parado: sem efeito
+
+      const spec = this.TIRE_SPECS[model.id] || { lx: 31.0, rx: 21.5, y: 20.2, w: 9.8, h: 3.8 };
+      const sx = w / this.SPRITE_W;
+      const sy = h / this.SPRITE_H;
+      const at = Math.abs(turn);
+      const rx = -turn * 4.6;
+      const sxTurn = 1 - at * 0.05;
+
+      const tires = [
+        { x: (rx - spec.lx * sxTurn) * sx, y: spec.y * sy, w: spec.w * sx, h: spec.h * sy },
+        { x: (rx + spec.rx * sxTurn) * sx, y: spec.y * sy, w: spec.w * sx, h: spec.h * sy }
+      ];
+
+      // Frequência de rolamento proporcional à velocidade
+      const stepH = Math.max(1.6, spec.h * sy * 0.45);
+      const rollOffset = ((phase * 8) % stepH + stepH) % stepH;
+      const blurIntensity = Math.min(1.0, spd / 180);
+      const lineH = Math.max(0.6, spec.h * sy * 0.22);
+
+      for (let t = 0; t < tires.length; t++) {
+        const tire = tires[t];
+        ctx.save();
+        // Não aumenta o tamanho da roda e NUNCA invade o para-choque: clip exato na borracha inferior
+        ctx.beginPath();
+        ctx.rect(tire.x + 0.6, tire.y, tire.w - 1.2, tire.h);
+        ctx.clip();
+
+        // 1. Ranhuras horizontais em rolamento sutil
+        ctx.fillStyle = `rgba(6, 8, 12, ${0.45 + blurIntensity * 0.25})`;
+        for (let gy = tire.y - stepH + rollOffset; gy < tire.y + tire.h + stepH; gy += stepH) {
+          ctx.fillRect(tire.x + 0.6, gy, tire.w - 1.2, lineH);
+        }
+
+        // 2. Reflexo dinâmico de rotação da borracha (shimmer sutil)
+        const shineY = tire.y + ((phase * 12) % tire.h);
+        const shineGrad = ctx.createLinearGradient(0, shineY - 1, 0, shineY + 2);
+        shineGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        shineGrad.addColorStop(0.5, `rgba(255, 255, 255, ${(0.04 + blurIntensity * 0.06).toFixed(3)})`);
+        shineGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = shineGrad;
+        ctx.fillRect(tire.x + 0.6, tire.y, tire.w - 1.2, tire.h);
+
+        ctx.restore();
+      }
+    },
+
     renderModel(ctx, model, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
       const isNitro = opts ? !!opts.isNitro : false;
       const isNight = opts ? !!opts.isNight : false;
@@ -525,6 +587,9 @@
       const drawX = -w * (this.ORIGIN_X / this.SPRITE_W);
       const drawY = -h * (this.ORIGIN_Y / this.SPRITE_H);
       ctx.drawImage(sprite, drawX, drawY, w, h);
+
+      // Efeito discreto de rodas em movimento proporcional à velocidade (sem alterar dimensões)
+      this.drawWheelMotionEffect(ctx, model, w, h, turn, phase, spd);
 
       if (isNitro) {
         const sx = w / this.SPRITE_W;
@@ -1105,7 +1170,8 @@
       grip: 0.74,
       centrifugalResistance: 0.70,
       primaryColor: '#D87A00',
-      exhaustPipes: [[-18.0, 21.0], [-13.0, 21.0]],
+      roofColor: '#12151B',
+      exhaustPipes: [[-19.0, 21.0], [-14.0, 21.0]],
       drawHD(c, body, turn, isBraking, isNight) {
         const out = CarArt.OUTLINE;
         const at = Math.abs(turn);
@@ -1114,71 +1180,97 @@
         const sx = 1 - at * 0.05;
         const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
 
-        // Pneus largos de muscle car
-        CarArt.drawRearTire(c, rx - 33.2 * sx, 12.5, 11.0, 12.0);
-        CarArt.drawRearTire(c, rx + 22.2 * sx, 12.5, 11.0, 12.0);
+        // Pneus largos de muscle car com tala esportiva
+        CarArt.drawRearTire(c, rx - 34.0 * sx, 12.0, 11.5, 12.5);
+        CarArt.drawRearTire(c, rx + 22.5 * sx, 12.0, 11.5, 12.5);
 
-        // Carroceria larga e musculosa do Opala SS
+        // Carroceria larga, musculosa e quadris em curva suave (estilo garrafa de coca-cola)
         const opalaBody = [
           [tx - 26.5 * sx, -23.5], [tx + 26.5 * sx, -23.5],
-          [rx + 34.0 * sx, -5.5],  [rx + 34.5 * sx, 13.5],
-          [rx - 34.5 * sx, 13.5],  [rx - 34.0 * sx, -5.5]
+          [rx + 34.8 * sx, -5.5],  [rx + 35.2 * sx, 13.5],
+          [rx - 35.2 * sx, 13.5],  [rx - 34.8 * sx, -5.5]
         ];
         CarArt.poly(c, opalaBody, CarArt.bodyGrad(c, body, -24, 14), out, 1.45);
 
-        // Faixa preta fosca clássica SS na traseira entre as lanternas
-        CarArt.roundRect(c, rx - 33.5 * sx, -3.0, 67.0 * sx, 11.5, 1.0, '#11141A', out, 1.0);
+        // Faixas pretas clássicas de corrida do Opala SS descendo pelo teto
+        const ssw = 4.2 * sx;
+        c.fillStyle = '#11141A';
+        c.fillRect(tx - 6.5 * sx, -23.5, ssw, 4.0);
+        c.fillRect(tx + 2.5 * sx, -23.5, ssw, 4.0);
 
         CarArt.drawDiscreetSideFlank(c, body, turn, {
-          rx, tx, rearW: 34.0 * sx, roofW: 26.5 * sx,
+          rx, tx, rearW: 34.8 * sx, roofW: 26.5 * sx,
           roofY: -23.5, beltY: -5.5, botY: 13.5, wheelStyle: 'alloy', mirrorColor: '#DCE5EE'
         });
 
-        // Vidro traseiro com caimento cupê clássico
+        // Vidro traseiro com caimento cupê suave e moldura cromada
         CarArt.drawGlassQuad(c, [
-          [tx - 23.0 * sx, -20.5], [tx + 23.0 * sx, -20.5],
-          [rx + 28.5 * sx, -6.0],  [rx - 28.5 * sx, -6.0]
+          [tx - 23.2 * sx, -20.5], [tx + 23.2 * sx, -20.5],
+          [rx + 29.0 * sx, -6.0],  [rx - 29.0 * sx, -6.0]
         ]);
+        CarArt.line(c, rx - 28.5 * sx, -6.2, rx + 28.5 * sx, -6.2, '#CBD5E1', 1.0); // Friso cromado sob o vidro
 
-        // As 4 Lendárias Lanternas Redondas do Opala SS (2 de cada lado com aro cromado)
-        const lampPositions = [-26.0, -18.5, 18.5, 26.0];
+        // Painel traseiro preto fosco característico dos Opalas SS
+        CarArt.roundRect(c, rx - 34.2 * sx, -3.2, 68.4 * sx, 12.2, 1.2, '#101318', out, 1.1);
+        CarArt.line(c, rx - 33.5 * sx, -2.8, rx + 33.5 * sx, -2.8, '#CBD5E1', 0.8);
+        CarArt.line(c, rx - 33.5 * sx, 8.6, rx + 33.5 * sx, 8.6, '#CBD5E1', 0.8);
+
+        // As 4 Lendárias Lanternas Redondas do Opala SS (2 de cada lado com aro cromado duplo e profundidade)
+        const lampPositions = [-26.2, -18.2, 18.2, 26.2];
         for (let i = 0; i < lampPositions.length; i++) {
           const lx = rx + lampPositions[i] * sx;
           const ly = 2.8;
-          // Aro cromado
-          c.fillStyle = '#CFDCE8';
+          // Aro cromado externo
+          c.fillStyle = '#E2E8F0';
           c.beginPath();
-          c.arc(lx, ly, 3.8, 0, Math.PI * 2);
+          c.arc(lx, ly, 4.2, 0, Math.PI * 2);
           c.fill();
           c.strokeStyle = out;
           c.lineWidth = 0.8;
           c.stroke();
-          // Lente vermelha rubi
+          // Borda interna preta
+          c.fillStyle = '#0F172A';
+          c.beginPath();
+          c.arc(lx, ly, 3.4, 0, Math.PI * 2);
+          c.fill();
+          // Lente vermelha rubi estriada com brilho
           c.fillStyle = tailRed;
           c.beginPath();
           c.arc(lx, ly, 2.9, 0, Math.PI * 2);
           c.fill();
-          CarArt.drawTailGlow(c, lx, ly, 4.0, 4.0, isBraking, isNight);
+          // Ponto de luz interno / reflexo
+          c.fillStyle = isBraking ? '#FFE4E6' : 'rgba(255, 255, 255, 0.45)';
+          c.beginPath();
+          c.arc(lx - 0.7, ly - 0.7, 0.9, 0, Math.PI * 2);
+          c.fill();
+          CarArt.drawTailGlow(c, lx, ly, 4.5, 4.5, isBraking, isNight);
         }
 
-        // Emblema "SS" cromado central
+        // Emblema "SS" clássico central em prata brilhante
         c.fillStyle = '#FFFFFF';
-        c.font = 'bold 4.5px sans-serif';
+        c.font = 'bold 5px sans-serif';
         c.textAlign = 'center';
-        c.fillText('SS', rx, 4.5);
+        c.fillText('SS', rx, 4.6);
+        c.fillStyle = '#CBD5E1';
+        c.font = 'bold 2.5px sans-serif';
+        c.fillText('4.100', rx, 7.5);
 
-        // Para-choque cromado clássico dos anos 70
-        const chrGrad = c.createLinearGradient(0, 11, 0, 17);
+        // Para-choque cromado maciço com batentes (garras)
+        const chrGrad = c.createLinearGradient(0, 11, 0, 17.5);
         chrGrad.addColorStop(0, '#FFFFFF');
-        chrGrad.addColorStop(0.5, '#B0C2D4');
-        chrGrad.addColorStop(1, '#657B90');
-        CarArt.roundRect(c, rx - 34.8 * sx, 11.5, 69.6 * sx, 5.5, 1.8, chrGrad, out, 1.3);
+        chrGrad.addColorStop(0.3, '#E2E8F0');
+        chrGrad.addColorStop(0.6, '#94A3B8');
+        chrGrad.addColorStop(1, '#475569');
+        CarArt.roundRect(c, rx - 35.5 * sx, 11.2, 71.0 * sx, 5.8, 2.0, chrGrad, out, 1.35);
+        // Garras cromadas verticais
+        CarArt.box(c, rx - 16.0 * sx, 10.0, 3.2, 7.4, '#E2E8F0', out, 0.8);
+        CarArt.box(c, rx + 12.8 * sx, 10.0, 3.2, 7.4, '#E2E8F0', out, 0.8);
 
-        CarArt.drawPlateStraight(c, rx - 9.0, 12.0, 18.0, 4.8);
+        CarArt.drawPlateStraight(c, rx - 9.0, 12.2, 18.0, 4.6);
 
-        // Dupla ponteira de escape cromada
-        CarArt.drawExhaustPipe(c, rx - 18.0 * sx, 20.8, 2.1);
-        CarArt.drawExhaustPipe(c, rx - 13.0 * sx, 20.8, 2.1);
+        // Duplo escapamento 6 cilindros esportivo cromado na lateral esquerda
+        CarArt.drawExhaustPipe(c, rx - 19.0 * sx, 20.8, 2.3);
+        CarArt.drawExhaustPipe(c, rx - 14.0 * sx, 20.8, 2.3);
       },
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
@@ -1187,8 +1279,8 @@
     {
       id: 'gol',
       name: 'GOL GTS 1.8S',
-      badge: 'O TURBO DOS ANOS 90',
-      desc: 'Linhas retas e agressivas, aerofólio traseiro e lanternas fumê frisadas. Tração dianteira firme e saída explosiva!',
+      badge: 'O QUADRADO MAIS DESEJADO',
+      desc: 'Linhas retas e agressivas, aerofólio envolvente, lanternas fumê frisadas e friso vermelho GTS. O turbo dos anos 90!',
       maxSpeed: 270,
       acceleration: 0.94,
       braking: 0.86,
@@ -1196,7 +1288,8 @@
       grip: 0.86,
       centrifugalResistance: 0.85,
       primaryColor: '#96121B',
-      exhaustPipes: [[-17.5, 21.0]],
+      roofColor: '#171B22',
+      exhaustPipes: [[-18.0, 21.0]],
       drawHD(c, body, turn, isBraking, isNight) {
         const out = CarArt.OUTLINE;
         const at = Math.abs(turn);
@@ -1205,60 +1298,102 @@
         const sx = 1 - at * 0.05;
         const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
 
-        CarArt.drawRearTire(c, rx - 31.5 * sx, 13, 9.8, 11.2);
-        CarArt.drawRearTire(c, rx + 21.5 * sx, 13, 9.8, 11.2);
+        CarArt.drawRearTire(c, rx - 31.8 * sx, 12.5, 9.8, 11.5);
+        CarArt.drawRearTire(c, rx + 22.0 * sx, 12.5, 9.8, 11.5);
 
-        // Carroceria hatchback quadrada icônica dos anos 80/90
+        // Carroceria clássica "Gol Quadrado" com ângulos retos e vincos marcantes
         const golBody = [
-          [tx - 23.5 * sx, -23.5], [tx + 23.5 * sx, -23.5],
-          [rx + 31.5 * sx, -6.0],  [rx + 32.2 * sx, 14.0],
-          [rx - 32.2 * sx, 14.0],  [rx - 31.5 * sx, -6.0]
+          [tx - 24.0 * sx, -23.5], [tx + 24.0 * sx, -23.5],
+          [rx + 32.0 * sx, -6.0],  [rx + 32.6 * sx, 13.8],
+          [rx - 32.6 * sx, 13.8],  [rx - 32.0 * sx, -6.0]
         ];
         CarArt.poly(c, golBody, CarArt.bodyGrad(c, body, -24, 14), out, 1.45);
 
         CarArt.drawDiscreetSideFlank(c, body, turn, {
-          rx, tx, rearW: 31.5 * sx, roofW: 23.5 * sx,
-          roofY: -23.5, beltY: -6.0, botY: 14.0, wheelStyle: 'alloy', mirrorColor: '#1A202C'
+          rx, tx, rearW: 32.0 * sx, roofW: 24.0 * sx,
+          roofY: -23.5, beltY: -6.0, botY: 13.8, wheelStyle: 'alloy', mirrorColor: '#1A202C'
         });
 
-        // Aerofólio de borracha preto clássico do GTS na tampa traseira
-        CarArt.roundRect(c, rx - 28.5 * sx, -7.5, 57.0 * sx, 3.2, 1.2, '#151A22', out, 1.0);
+        // Aerofólio de borracha preto envolvente icônico do Gol GTS (cobre topo e laterais da vigia)
+        CarArt.roundRect(c, rx - 29.5 * sx, -8.6, 59.0 * sx, 3.8, 1.4, '#141820', out, 1.2);
+        // Descidas laterais do aerofólio na coluna
+        CarArt.poly(c, [
+          [rx - 29.5 * sx, -8.6], [rx - 27.0 * sx, -8.6],
+          [rx - 27.5 * sx, -4.5], [rx - 30.0 * sx, -4.5]
+        ], '#141820', out, 0.9);
+        CarArt.poly(c, [
+          [rx + 27.0 * sx, -8.6], [rx + 29.5 * sx, -8.6],
+          [rx + 30.0 * sx, -4.5], [rx + 27.5 * sx, -4.5]
+        ], '#141820', out, 0.9);
 
-        // Vigia traseira com limpador e desembaçador
+        // Vidro traseiro com limpador e desembaçador térmico vermelho/laranja
         CarArt.drawGlassQuad(c, [
-          [tx - 21.0 * sx, -21.0], [tx + 21.0 * sx, -21.0],
-          [rx + 26.5 * sx, -8.0],  [rx - 26.5 * sx, -8.0]
+          [tx - 21.2 * sx, -21.0], [tx + 21.2 * sx, -21.0],
+          [rx + 26.8 * sx, -7.5],  [rx - 26.8 * sx, -7.5]
         ]);
+        // Linhas horizontais do desembaçador traseiro
+        for (let l = 1; l <= 3; l++) {
+          CarArt.line(c, rx - 24.0 * sx, -18.0 + l * 2.8, rx + 24.0 * sx, -18.0 + l * 2.8, 'rgba(239, 68, 68, 0.55)', 0.6);
+        }
+        // Limpador traseiro preto inclinado
+        CarArt.line(c, rx - 2.0, -8.0, rx + 12.0 * sx, -12.5, '#0F172A', 1.5);
 
-        // Faixa preta com logo GTS
-        CarArt.roundRect(c, rx - 24.0 * sx, 0.5, 48.0 * sx, 7.5, 0.8, '#181E28', out, 0.8);
-        c.fillStyle = '#FF1744';
-        c.font = 'bold 4.2px sans-serif';
-        c.textAlign = 'center';
-        c.fillText('GTS', rx - 12.0 * sx, 6.0);
+        // Plástico preto texturizado entre as lanternas (marca registrada da linha quadrada GTS/GTi)
+        CarArt.roundRect(c, rx - 23.5 * sx, 0.2, 47.0 * sx, 8.5, 0.8, '#131822', out, 1.0);
 
-        // Lanternas horizontais frisadas fumê (estilo clássico VW dos anos 90)
+        // Logo VW cromado e letreiro GTS 1.8S
+        c.fillStyle = '#CBD5E1';
+        c.beginPath();
+        c.arc(rx, 4.2, 2.6, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = out;
+        c.lineWidth = 0.6;
+        c.stroke();
+        c.fillStyle = '#131822';
+        c.beginPath();
+        c.arc(rx, 4.2, 1.8, 0, Math.PI * 2);
+        c.fill();
+        CarArt.line(c, rx - 0.9, 4.8, rx + 0.9, 3.6, '#CBD5E1', 0.8);
+
+        // Letreiro GTS em vermelho esportivo
+        c.fillStyle = '#EF4444';
+        c.font = 'bold 4.5px sans-serif';
+        c.textAlign = 'left';
+        c.fillText('GTS', rx + 6.0 * sx, 6.0);
+        c.fillStyle = '#FFFFFF';
+        c.font = 'bold 2.5px sans-serif';
+        c.fillText('1.8S', rx + 15.5 * sx, 6.0);
+
+        // Lanternas horizontais largas frisadas fumê (estilo clássico VW dos anos 90)
         const drawGolLamp = (lx, isLeft) => {
-          CarArt.roundRect(c, lx, 0.5, 9.5 * sx, 7.8, 1.0, tailRed, out, 1.0);
-          c.fillStyle = '#E59819';
-          c.fillRect(isLeft ? lx + 0.8 : lx + 5.5 * sx, 1.5, 3.2 * sx, 2.5);
-          for (let f = 0; f < 3; f++) {
-            CarArt.line(c, lx, 2.5 + f * 2.0, lx + 9.5 * sx, 2.5 + f * 2.0, '#10141A', 0.8);
+          CarArt.roundRect(c, lx, 0.2, 10.2 * sx, 8.5, 1.0, tailRed, out, 1.0);
+          // Pisca âmbar
+          c.fillStyle = '#D97706';
+          c.fillRect(isLeft ? lx + 0.8 : lx + 6.0 * sx, 1.0, 3.4 * sx, 2.8);
+          // Luz de ré branca
+          c.fillStyle = '#E2E8F0';
+          c.fillRect(isLeft ? lx + 4.6 * sx : lx + 1.2 * sx, 5.0, 4.2 * sx, 2.6);
+          // Frisos horizontais pretos característicos do GTS
+          for (let f = 1; f <= 3; f++) {
+            CarArt.line(c, lx, 0.2 + f * 2.1, lx + 10.2 * sx, 0.2 + f * 2.1, '#0F131A', 0.9);
           }
-          CarArt.drawTailGlow(c, lx + 4.7 * sx, 4.4, 5.0, 4.0, isBraking, isNight);
+          CarArt.drawTailGlow(c, lx + 5.1 * sx, 4.4, 5.2, 4.2, isBraking, isNight);
         };
-        drawGolLamp(rx - 31.8 * sx, true);
-        drawGolLamp(rx + 22.3 * sx, false);
+        drawGolLamp(rx - 32.2 * sx, true);
+        drawGolLamp(rx + 22.0 * sx, false);
 
-        // Para-choque envolvente cinza escuro/preto com friso vermelho do GTS
-        const bmp = c.createLinearGradient(0, 11, 0, 19);
-        bmp.addColorStop(0, '#282E38');
-        bmp.addColorStop(1, '#151A22');
-        CarArt.roundRect(c, rx - 32.8 * sx, 11.5, 65.6 * sx, 8.5, 1.8, bmp, out, 1.3);
-        CarArt.line(c, rx - 31.5 * sx, 13.0, rx + 31.5 * sx, 13.0, '#FF1744', 1.0); // Friso vermelho GTS
+        // Para-choque largo envolvente cinza chumbo com o lendário FRISO VERMELHO contínuo do GTS
+        const bmp = c.createLinearGradient(0, 11, 0, 19.5);
+        bmp.addColorStop(0, '#2C3440');
+        bmp.addColorStop(0.5, '#1E242C');
+        bmp.addColorStop(1, '#11151B');
+        CarArt.roundRect(c, rx - 33.5 * sx, 11.2, 67.0 * sx, 8.8, 1.8, bmp, out, 1.35);
+        // Friso vermelho do GTS
+        CarArt.line(c, rx - 32.0 * sx, 13.0, rx + 32.0 * sx, 13.0, '#EF4444', 1.2);
 
-        CarArt.drawPlateStraight(c, rx - 9.5, 13.5, 19.0, 5.0);
-        CarArt.drawExhaustPipe(c, rx - 17.5 * sx, 21.0, 2.0);
+        CarArt.drawPlateStraight(c, rx - 9.5, 13.6, 19.0, 5.0);
+        // Ponteira esportiva oval de inox chanfrada
+        CarArt.drawExhaustPipe(c, rx - 18.0 * sx, 21.0, 2.2);
       },
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
@@ -1276,6 +1411,7 @@
       grip: 0.92,
       centrifugalResistance: 0.90,
       primaryColor: '#1F5B9E',
+      roofColor: '#131A26',
       exhaustPipes: [[-16.5, 21.2]],
       drawHD(c, body, turn, isBraking, isNight) {
         const out = CarArt.OUTLINE;
@@ -1285,58 +1421,81 @@
         const sx = 1 - at * 0.05;
         const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
 
-        CarArt.drawRearTire(c, rx - 30.5 * sx, 13, 9.0, 11.2);
-        CarArt.drawRearTire(c, rx + 21.5 * sx, 13, 9.0, 11.2);
+        CarArt.drawRearTire(c, rx - 31.0 * sx, 12.8, 9.2, 11.5);
+        CarArt.drawRearTire(c, rx + 21.8 * sx, 12.8, 9.2, 11.5);
 
-        // Carroceria compacta sedã/fastback dos anos 70
+        // Carroceria clássica sedã compacta com caimento fastback e vinco dorsal do Tubarão
         const chevetteBody = [
-          [tx - 22.0 * sx, -23.0], [tx + 22.0 * sx, -23.0],
-          [rx + 30.0 * sx, -5.5],  [rx + 30.8 * sx, 14.0],
-          [rx - 30.8 * sx, 14.0],  [rx - 30.0 * sx, -5.5]
+          [tx - 22.8 * sx, -23.0], [tx + 22.8 * sx, -23.0],
+          [rx + 30.6 * sx, -5.5],  [rx + 31.2 * sx, 13.8],
+          [rx - 31.2 * sx, 13.8],  [rx - 30.6 * sx, -5.5]
         ];
         CarArt.poly(c, chevetteBody, CarArt.bodyGrad(c, body, -24, 14), out, 1.45);
 
         CarArt.drawDiscreetSideFlank(c, body, turn, {
-          rx, tx, rearW: 30.0 * sx, roofW: 22.0 * sx,
-          roofY: -23.0, beltY: -5.5, botY: 14.0, wheelStyle: 'steel', mirrorColor: '#DCE5EE'
+          rx, tx, rearW: 30.6 * sx, roofW: 22.8 * sx,
+          roofY: -23.0, beltY: -5.5, botY: 13.8, wheelStyle: 'steel', mirrorColor: '#DCE5EE'
         });
 
-        // Vidro traseiro ligeiramente inclinado
+        // Vidro traseiro com moldura cromada fina
         CarArt.drawGlassQuad(c, [
-          [tx - 19.5 * sx, -20.5], [tx + 19.5 * sx, -20.5],
-          [rx + 25.0 * sx, -6.5],  [rx - 25.0 * sx, -6.5]
+          [tx - 20.0 * sx, -20.5], [tx + 20.0 * sx, -20.5],
+          [rx + 25.8 * sx, -6.5],  [rx - 25.8 * sx, -6.5]
         ]);
+        CarArt.line(c, rx - 25.0 * sx, -6.6, rx + 25.0 * sx, -6.6, '#CBD5E1', 0.9);
 
-        // Tampa do porta-malas saliente com vinco cromado
-        CarArt.line(c, rx - 27.0 * sx, -4.5, rx + 27.0 * sx, -4.5, '#E2E8F0', 1.0);
+        // Vinco dorsal central na tampa do porta-malas (o formato em cunha do Tubarão)
+        CarArt.line(c, rx, -5.5, rx, 3.5, CarArt.shade(body, 30), 1.2);
+        CarArt.line(c, rx - 28.0 * sx, -4.5, rx + 28.0 * sx, -4.5, '#E2E8F0', 1.0); // Friso cromado de cintura
 
-        // Duas lanternas quadradas cromadas clássicas do Tubarão
+        // Emblema azul da GM no centro da tampa
+        c.fillStyle = '#2563EB';
+        c.fillRect(rx - 2.0, 1.8, 4.0, 3.0);
+        c.strokeStyle = '#FFFFFF';
+        c.lineWidth = 0.7;
+        c.strokeRect(rx - 2.0, 1.8, 4.0, 3.0);
+
+        // Letreiro "CHEVETTE" cromado na tampa direita
+        c.fillStyle = '#E2E8F0';
+        c.font = 'bold 3.2px sans-serif';
+        c.textAlign = 'right';
+        c.fillText('CHEVETTE', rx + 20.5 * sx, 5.0);
+
+        // Lanternas quadradas clássicas do Tubarão (1973-1977) com aro cromado saliente
         const drawChevetteLamp = (lx) => {
-          c.fillStyle = '#CFDCE8';
-          c.fillRect(lx - 0.8, -0.2, 7.6 * sx, 8.4);
-          c.fillStyle = tailRed;
-          c.fillRect(lx, 0.8, 6.0 * sx, 3.4);
-          c.fillStyle = '#F59E0B';
-          c.fillRect(lx, 4.4, 6.0 * sx, 3.0);
+          // Aro cromado externo
+          c.fillStyle = '#E2E8F0';
+          c.fillRect(lx - 1.0, -0.6, 8.2 * sx, 9.2);
           c.strokeStyle = out;
-          c.lineWidth = 0.9;
-          c.strokeRect(lx - 0.8, -0.2, 7.6 * sx, 8.4);
-          CarArt.drawTailGlow(c, lx + 3.0 * sx, 2.5, 4.5, 4.0, isBraking, isNight);
+          c.lineWidth = 0.8;
+          c.strokeRect(lx - 1.0, -0.6, 8.2 * sx, 9.2);
+
+          // Luz de freio vermelha (topo)
+          c.fillStyle = tailRed;
+          c.fillRect(lx, 0.4, 6.2 * sx, 3.8);
+          // Pisca âmbar (base)
+          c.fillStyle = '#D97706';
+          c.fillRect(lx, 4.4, 6.2 * sx, 3.4);
+
+          CarArt.line(c, lx, 4.2, lx + 6.2 * sx, 4.2, '#0F172A', 0.7);
+          CarArt.drawTailGlow(c, lx + 3.1 * sx, 2.5, 4.6, 4.0, isBraking, isNight);
         };
-        drawChevetteLamp(rx - 28.5 * sx);
-        drawChevetteLamp(rx + 22.5 * sx);
+        drawChevetteLamp(rx - 29.2 * sx);
+        drawChevetteLamp(rx + 23.0 * sx);
 
-        // Para-choque de lâmina cromada fina com batentes pretos
-        const chrGrad = c.createLinearGradient(0, 11, 0, 16);
+        // Para-choque de lâmina cromada fina com batentes (garras) pretos emborrachados
+        const chrGrad = c.createLinearGradient(0, 11, 0, 16.5);
         chrGrad.addColorStop(0, '#FFFFFF');
-        chrGrad.addColorStop(0.5, '#C8D6E5');
-        chrGrad.addColorStop(1, '#8395A7');
-        CarArt.roundRect(c, rx - 31.5 * sx, 12.0, 63.0 * sx, 4.8, 1.4, chrGrad, out, 1.25);
-        CarArt.box(c, rx - 18.0 * sx, 11.2, 3.2, 6.4, '#151A22', out, 0.8);
-        CarArt.box(c, rx + 14.8 * sx, 11.2, 3.2, 6.4, '#151A22', out, 0.8);
+        chrGrad.addColorStop(0.4, '#CBD5E1');
+        chrGrad.addColorStop(1, '#64748B');
+        CarArt.roundRect(c, rx - 32.2 * sx, 11.5, 64.4 * sx, 5.2, 1.5, chrGrad, out, 1.3);
 
-        CarArt.drawPlateStraight(c, rx - 9.0, 12.0, 18.0, 4.8);
-        CarArt.drawExhaustPipe(c, rx - 16.5 * sx, 21.0, 1.9);
+        // Dois batentes pretos verticais clássicos da GM dos anos 70
+        CarArt.box(c, rx - 18.2 * sx, 10.5, 3.5, 7.2, '#151A22', out, 0.9);
+        CarArt.box(c, rx + 14.7 * sx, 10.5, 3.5, 7.2, '#151A22', out, 0.9);
+
+        CarArt.drawPlateStraight(c, rx - 9.0, 12.0, 18.0, 4.6);
+        CarArt.drawExhaustPipe(c, rx - 16.5 * sx, 20.8, 1.9);
       },
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);
@@ -1354,7 +1513,8 @@
       grip: 0.92,
       centrifugalResistance: 0.92,
       primaryColor: '#F5BE00',
-      exhaustPipes: [[-7.0, 21.5], [7.0, 21.5]],
+      roofColor: '#2B2610',
+      exhaustPipes: [[-7.5, 21.5], [7.5, 21.5]],
       drawHD(c, body, turn, isBraking, isNight) {
         const out = CarArt.OUTLINE;
         const at = Math.abs(turn);
@@ -1363,60 +1523,79 @@
         const sx = 1 - at * 0.05;
         const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
 
-        CarArt.drawRearTire(c, rx - 31.0 * sx, 13, 9.2, 11.2);
-        CarArt.drawRearTire(c, rx + 21.8 * sx, 13, 9.2, 11.2);
+        CarArt.drawRearTire(c, rx - 31.5 * sx, 12.8, 9.4, 11.5);
+        CarArt.drawRearTire(c, rx + 22.0 * sx, 12.8, 9.4, 11.5);
 
-        // Carroceria ampla com teto plano e grandes vigias
+        // Carroceria ampla, teto quase plano e colunas traseiras marcantes da Brasília
         const brBody = [
-          [tx - 24.5 * sx, -23.5], [tx + 24.5 * sx, -23.5],
-          [rx + 31.8 * sx, -6.0],  [rx + 32.5 * sx, 14.0],
-          [rx - 32.5 * sx, 14.0],  [rx - 31.8 * sx, -6.0]
+          [tx - 25.2 * sx, -23.5], [tx + 25.2 * sx, -23.5],
+          [rx + 32.5 * sx, -6.0],  [rx + 33.0 * sx, 14.0],
+          [rx - 33.0 * sx, 14.0],  [rx - 32.5 * sx, -6.0]
         ];
         CarArt.poly(c, brBody, CarArt.bodyGrad(c, body, -24, 14), out, 1.45);
 
         CarArt.drawDiscreetSideFlank(c, body, turn, {
-          rx, tx, rearW: 31.8 * sx, roofW: 24.5 * sx,
+          rx, tx, rearW: 32.5 * sx, roofW: 25.2 * sx,
           roofY: -23.5, beltY: -6.0, botY: 14.0, wheelStyle: 'hubcap', mirrorColor: '#DCE5EE'
         });
 
-        // Vidro traseiro enorme (uma das marcas registradas da Brasília)
-        CarArt.drawGlassQuad(c, [
-          [tx - 22.0 * sx, -20.8], [tx + 22.0 * sx, -20.8],
-          [rx + 27.5 * sx, -6.8],  [rx - 27.5 * sx, -6.8]
-        ]);
+        // AS FAMOSAS GUELRAS / ALETAS DE ARREFECECIMENTO NAS COLUNAS TRASEIRAS (Marca registrada da Brasília!)
+        const drawGills = (gx, isLeft) => {
+          for (let g = 0; g < 4; g++) {
+            const gy = -18.5 + g * 3.2;
+            CarArt.line(c, gx, gy, gx + (isLeft ? 4.5 : -4.5) * sx, gy, '#151A22', 1.4);
+          }
+        };
+        drawGills(tx - 24.2 * sx, true);
+        drawGills(tx + 24.2 * sx, false);
 
-        // Aletas de ventilação do motor traseiro
-        for (let a = -14; a <= 14; a += 3.5) {
-          CarArt.line(c, rx + a * sx, -4.5, rx + a * sx, -2.0, '#151A22', 1.0);
+        // Vidro traseiro panorâmico gigante com borracha preta e moldura cromada
+        CarArt.drawGlassQuad(c, [
+          [tx - 22.5 * sx, -20.8], [tx + 22.5 * sx, -20.8],
+          [rx + 28.0 * sx, -6.8],  [rx - 28.0 * sx, -6.8]
+        ]);
+        CarArt.line(c, rx - 27.5 * sx, -7.0, rx + 27.5 * sx, -7.0, '#CBD5E1', 0.9);
+
+        // Venezianas horizontais de resfriamento do motor boxer a ar abaixo do vidro
+        for (let a = -16; a <= 16; a += 3.2) {
+          CarArt.line(c, rx + a * sx, -4.8, rx + a * sx, -1.8, '#181E28', 1.2);
         }
 
-        // Lanternas frisadas horizontais bicolores (clássica da Brasília/Variant)
-        const drawBrasiliaLamp = (lx) => {
-          CarArt.roundRect(c, lx, 0.5, 9.5 * sx, 8.5, 1.0, tailRed, out, 1.0);
-          c.fillStyle = '#F59E0B';
-          c.fillRect(lx + 0.8, 1.2, 7.8 * sx, 3.2);
-          // Frisos horizontais na lente
-          for (let f = 1; f <= 3; f++) {
-            CarArt.line(c, lx, 1.2 + f * 1.8, lx + 9.5 * sx, 1.2 + f * 1.8, '#10141B', 0.85);
-          }
-          CarArt.drawTailGlow(c, lx + 4.7 * sx, 4.5, 4.8, 4.0, isBraking, isNight);
-        };
-        drawBrasiliaLamp(rx - 31.5 * sx);
-        drawBrasiliaLamp(rx + 22.0 * sx);
+        // Letreiro cromado em itálico "Brasilia" na tampa direita
+        c.fillStyle = '#CBD5E1';
+        c.font = 'italic bold 3.2px sans-serif';
+        c.textAlign = 'right';
+        c.fillText('Brasilia', rx + 20.0 * sx, 4.5);
 
-        // Para-choque clássico com friso de borracha preto no centro
-        const chrGrad = c.createLinearGradient(0, 11, 0, 16);
+        // Lanternas horizontais frisadas bicolores (clássica da Brasília com estrias em relevo)
+        const drawBrasiliaLamp = (lx) => {
+          CarArt.roundRect(c, lx, 0.4, 10.0 * sx, 8.8, 1.0, tailRed, out, 1.0);
+          // Pisca âmbar no topo
+          c.fillStyle = '#D97706';
+          c.fillRect(lx + 0.8, 1.2, 8.4 * sx, 3.4);
+          // Estrias horizontais em relevo por toda a lanterna
+          for (let f = 1; f <= 3; f++) {
+            CarArt.line(c, lx, 1.2 + f * 1.9, lx + 10.0 * sx, 1.2 + f * 1.9, '#11151D', 0.85);
+          }
+          CarArt.drawTailGlow(c, lx + 5.0 * sx, 4.6, 5.0, 4.2, isBraking, isNight);
+        };
+        drawBrasiliaLamp(rx - 32.2 * sx);
+        drawBrasiliaLamp(rx + 22.2 * sx);
+
+        // Para-choque clássico cromado com borrachão preto grosso contínuo no centro
+        const chrGrad = c.createLinearGradient(0, 11, 0, 16.8);
         chrGrad.addColorStop(0, '#FFFFFF');
         chrGrad.addColorStop(0.5, '#CBD5E1');
-        chrGrad.addColorStop(1, '#94A3B8');
-        CarArt.roundRect(c, rx - 32.5 * sx, 11.5, 65.0 * sx, 5.5, 1.6, chrGrad, out, 1.3);
-        CarArt.line(c, rx - 31.0 * sx, 14.2, rx + 31.0 * sx, 14.2, '#1E293B', 1.5); // Borrachão central
+        chrGrad.addColorStop(1, '#64748B');
+        CarArt.roundRect(c, rx - 33.2 * sx, 11.2, 66.4 * sx, 5.8, 1.6, chrGrad, out, 1.35);
+        // Borrachão preto central
+        CarArt.line(c, rx - 31.8 * sx, 14.1, rx + 31.8 * sx, 14.1, '#1A202C', 1.8);
 
         CarArt.drawPlateStraight(c, rx - 9.0, 12.0, 18.0, 4.8);
 
-        // Duplo escapamento clássico do motor boxer
-        CarArt.drawExhaustPipe(c, rx - 7.0 * sx, 21.0, 1.8);
-        CarArt.drawExhaustPipe(c, rx + 7.0 * sx, 21.0, 1.8);
+        // Duplo escapamento clássico simétrico do motor boxer VW
+        CarArt.drawExhaustPipe(c, rx - 7.5 * sx, 21.0, 1.85);
+        CarArt.drawExhaustPipe(c, rx + 7.5 * sx, 21.0, 1.85);
       },
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);

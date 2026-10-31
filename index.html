@@ -24,20 +24,38 @@
     </div>
 
     <div id="top-utility-bar">
-      <button class="util-btn" id="fullscreen-btn" title="Alternar Tela Cheia">⛶ TELA CHEIA</button>
-      <button class="util-btn" id="opacity-toggle-btn" title="Configurar Controles e Opacidade">🎛️ CONTROLES</button>
-      <button class="util-btn" id="pause-touch-btn" title="Pausar / Continuar">⏸</button>
+      <button class="gear-btn" id="gear-btn" title="Configurações e Pausa">⚙</button>
     </div>
 
+    <!-- Modal de Configurações, Tela Cheia e Controles (Acessível pela Engrenagem ⚙) -->
     <div id="opacity-panel">
       <div class="panel-header">
-        <span>🎮 CONTROLES &amp; OPACIDADE</span>
-        <button class="panel-close" id="opacity-close-btn">✕</button>
+        <span>⚙ CONFIGURAÇÕES &amp; CONTROLES</span>
+        <button class="panel-close" id="opacity-close-btn" title="Fechar / Voltar ao Jogo">✕</button>
       </div>
 
+      <div class="panel-section-title">TAMANHO DOS CONTROLES VIRTUAIS</div>
       <div class="opacity-row">
         <div class="opacity-label-line">
-          <span>DIRECIONAL (CRUZ SNES)</span>
+          <span>ESCALA DOS CONTROLES</span>
+          <span class="opacity-val" id="ctrl-scale-val">100%</span>
+        </div>
+        <div class="slider-controls">
+          <button class="step-btn" id="scale-minus" type="button" title="Diminuir tamanho">−</button>
+          <div class="custom-slider" id="scale-slider">
+            <div class="custom-slider-track">
+              <div class="custom-slider-fill" id="scale-slider-fill"></div>
+            </div>
+            <div class="custom-slider-thumb" id="scale-slider-thumb"></div>
+          </div>
+          <button class="step-btn" id="scale-plus" type="button" title="Aumentar tamanho">+</button>
+        </div>
+      </div>
+
+      <div class="panel-section-title">OPACIDADE DOS CONTROLES TOUCH</div>
+      <div class="opacity-row">
+        <div class="opacity-label-line">
+          <span>SETAS DIRECIONAIS (ESQ / DIR)</span>
           <span class="opacity-val" id="dpad-opacity-val">78%</span>
         </div>
         <div class="slider-controls">
@@ -54,7 +72,7 @@
 
       <div class="opacity-row">
         <div class="opacity-label-line">
-          <span>BOTÕES (1, 2, 3)</span>
+          <span>BOTÕES DE AÇÃO (1, 2, 3)</span>
           <span class="opacity-val" id="btns-opacity-val">78%</span>
         </div>
         <div class="slider-controls">
@@ -77,20 +95,24 @@
       </div>
 
       <div class="panel-footer-actions">
-        <button class="panel-action-btn" id="touch-toggle-btn" type="button">CONTROLES: ON</button>
         <button class="panel-action-btn" id="panel-fullscreen-btn" type="button">⛶ TELA CHEIA</button>
+        <button class="panel-action-btn" id="touch-toggle-btn" type="button">CONTROLES: ON</button>
+        <button class="panel-action-btn panel-action-resume" id="panel-resume-btn" type="button">▶ CONTINUAR</button>
       </div>
     </div>
 
     <div id="touch-controls">
-      <!-- Canto Inferior Esquerdo: 4 Direções em Cruz Estilo SNES -->
+      <!-- Canto Inferior Esquerdo: Apenas Setas Esquerda (◀) e Direita (▶) -->
       <div id="dpad-cluster">
-        <div id="dpad-cross">
-          <div class="dpad-arm" id="dpad-up">▲</div>
-          <div class="dpad-arm" id="dpad-left">◀</div>
-          <div id="dpad-center"></div>
-          <div class="dpad-arm" id="dpad-right">▶</div>
-          <div class="dpad-arm" id="dpad-down">▼</div>
+        <div id="steer-pair">
+          <div class="steer-arrow-btn" id="dpad-left" title="Virar à Esquerda">
+            <span class="steer-icon">◀</span>
+            <span class="steer-label">ESQ</span>
+          </div>
+          <div class="steer-arrow-btn" id="dpad-right" title="Virar à Direita">
+            <span class="steer-icon">▶</span>
+            <span class="steer-label">DIR</span>
+          </div>
         </div>
       </div>
 

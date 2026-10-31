@@ -186,7 +186,11 @@
       this.state = 'RACE_SETUP';
       this.setupCooldown = 0.55;
       this.setupGroup = 0;
+      this.audio.stopTitleMusic();
       this.audio.musicPlaying = true;
+      if (this.audio && typeof this.audio.setSong === 'function') {
+        this.audio.setSong(this.songIndex);
+      }
       if (this.input) {
         this.input.lastCanvasClick = null;
         this.input.enter = false;
@@ -780,6 +784,11 @@
               if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
                 this.songIndex = c.i;
                 this.setupGroup = 1;
+                this.audio.stopTitleMusic();
+                this.audio.musicPlaying = true;
+                if (this.audio && typeof this.audio.setSong === 'function') {
+                  this.audio.setSong(c.i);
+                }
                 this.audio.playBeep(523, 0.08);
                 clickedInteractive = true;
                 break;
@@ -797,6 +806,7 @@
                 setTimeout(() => { try { this.nameInput.focus(); } catch (_) {} }, 40);
               }
               this.audio.musicPlaying = false;
+              this.audio.playTitleMusic();
               this.input.clearPulses();
               return;
             }
@@ -830,6 +840,11 @@
             this.audio.playBeep(330, 0.05);
           } else {
             this.songIndex = (this.songIndex - 1 + SONGS.length) % SONGS.length;
+            this.audio.stopTitleMusic();
+            this.audio.musicPlaying = true;
+            if (this.audio && typeof this.audio.setSong === 'function') {
+              this.audio.setSong(this.songIndex);
+            }
             this.audio.playBeep(330, 0.05);
           }
         }
@@ -841,6 +856,11 @@
             this.audio.playBeep(330, 0.05);
           } else {
             this.songIndex = (this.songIndex + 1) % SONGS.length;
+            this.audio.stopTitleMusic();
+            this.audio.musicPlaying = true;
+            if (this.audio && typeof this.audio.setSong === 'function') {
+              this.audio.setSong(this.songIndex);
+            }
             this.audio.playBeep(330, 0.05);
           }
         }
@@ -860,6 +880,7 @@
             setTimeout(() => { try { this.nameInput.focus(); } catch (_) {} }, 40);
           }
           this.audio.musicPlaying = false;
+          this.audio.playTitleMusic();
           this.input.clearPulses();
           return;
         }
@@ -928,7 +949,15 @@
             this.audio.playTitleMusic();
           } else if (this.trackIndex < TRACK_DEFINITIONS.length - 1) {
             this.loadTrack(this.trackIndex + 1);
-            this.songIndex = this.trackIndex;
+            // Sorteia uma música aleatória diferente da anterior para a próxima etapa do campeonato
+            const curSong = this.songIndex;
+            let nextSong = curSong;
+            if (SONGS.length > 1) {
+              do {
+                nextSong = Math.floor(Math.random() * SONGS.length);
+              } while (nextSong === curSong);
+            }
+            this.songIndex = nextSong;
             this.startRaceCountdown();
           } else {
             this.state = 'CHAMPIONSHIP_RESULT';
@@ -1118,7 +1147,13 @@
       const downhillBonus = Math.max(0, -slope * 230);
       const dynamicMaxSpeed = effectiveMaxSpeed + downhillBonus;
 
-      if (isAccelerating) {
+      if (isAccelerating && p.isBraking) {
+        // Trail Braking / Frenagem esportiva simultânea:
+        // Pressionar freio e acelerador ao mesmo tempo reduz suavemente a velocidade,
+        // permitindo dosar a tangência ideal em curvas sem perder totalmente o giro do motor!
+        const trailBrakeRate = (125 + model.braking * 95) * dt;
+        p.speed = Math.max(0, p.speed - trailBrakeRate);
+      } else if (isAccelerating) {
         const rate = (132 + effectiveAccel * 135) * torqueFactor * dt;
         p.speed = Math.min(p.speed + rate, dynamicMaxSpeed);
       } else if (p.isBraking) {
@@ -1548,16 +1583,19 @@
 
       this.renderSky(ctx, def);
 
-      // Fundo base de grama
-      ctx.fillStyle = def.colors.grassDark;
+      // Fundo base de terreno de acordo com o clima/horário ativo (verde em dia, branco em neve, etc.)
+      ctx.fillStyle = (this.segColDark && this.segColDark.grass) ? this.segColDark.grass : def.colors.grassDark;
       ctx.fillRect(-20, INTERNAL_HEIGHT / 2, INTERNAL_WIDTH + 40, INTERNAL_HEIGHT / 2 + 20);
 
       this.renderRoad(ctx, def);
 
+      const isNight = this.envCur ? ((this.envCur.s.night || 0) > 0.28) : false;
+      const isDusk = this.envCur ? ((this.envCur.s.dusk || 0) > 0.25) : false;
+
       // Neblina atmosférica sutil na linha do horizonte para profundidade
       const hazeGrad = ctx.createLinearGradient(0, INTERNAL_HEIGHT / 2 - 4, 0, INTERNAL_HEIGHT / 2 + 10);
       hazeGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      hazeGrad.addColorStop(0.45, def.theme === 'NOITE' ? 'rgba(0, 180, 216, 0.12)' : (def.theme === 'SERRA' ? 'rgba(255, 140, 80, 0.22)' : 'rgba(220, 242, 255, 0.22)'));
+      hazeGrad.addColorStop(0.45, isNight ? 'rgba(0, 180, 216, 0.12)' : (isDusk ? 'rgba(255, 140, 80, 0.22)' : 'rgba(220, 242, 255, 0.22)'));
       hazeGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       ctx.fillStyle = hazeGrad;
       ctx.fillRect(-20, INTERNAL_HEIGHT / 2 - 4, INTERNAL_WIDTH + 40, 14);
@@ -1567,7 +1605,7 @@
         const steerLean = this.player.steerAngle || 0;
         const playerSeg = this.findSegment(this.player.z);
         const inTunnel = (playerSeg && !!playerSeg.tunnel);
-        const nightIntensity = inTunnel ? 1.0 : (this.envCur ? Math.max(def.theme === 'NOITE' ? 1 : 0, this.envCur.s.night || 0) : (def.theme === 'NOITE' ? 1 : 0));
+        const nightIntensity = inTunnel ? 1.0 : (this.envCur ? (this.envCur.s.night || 0) : 0);
         const isNight = (nightIntensity > 0.28);
 
         if (this.finishingRace) {
@@ -1871,6 +1909,18 @@
       const horizonY = INTERNAL_HEIGHT / 2;
       const scroll = this.skyScroll;
 
+      // Se a câmera estiver dentro do túnel, preenche o céu com a abóbada de rocha escura
+      // evitando qualquer vazamento ou corte do céu externo no teto!
+      if (baseSeg && !!baseSeg.tunnel) {
+        const isStone = (baseSeg.tunnel === 'stone') || (def && def.theme === 'SERRA');
+        const darkGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+        darkGrad.addColorStop(0, isStone ? '#0D0907' : '#04070D');
+        darkGrad.addColorStop(1, isStone ? '#1A1410' : '#0B111A');
+        ctx.fillStyle = darkGrad;
+        ctx.fillRect(-20, -20, INTERNAL_WIDTH + 40, horizonY + 20);
+        return;
+      }
+
       if (def && def.id === 'serra') {
         this.renderSkySerra(ctx, def, scroll, curveShift, horizonY, E, S);
       } else if (def && def.id === 'noite') {
@@ -1886,23 +1936,67 @@
     // =========================================================================
     renderSkyBrasil(ctx, def, scroll, curveShift, horizonY, E, S) {
       const nowSec = performance.now() * 0.003;
+      const isNight = S.night > 0.28;
+      const isDusk = S.dusk > 0.25;
 
-      // 1. Céu em degradê de 4 cores do crepúsculo
+      // 1. Céu dinâmico conforme E.css e E.s
       const grad = ctx.createLinearGradient(0, -20, 0, horizonY);
-      grad.addColorStop(0, '#201538');    // Roxo espacial profundo
-      grad.addColorStop(0.35, '#6E2856'); // Magenta / violeta crepúsculo
-      grad.addColorStop(0.68, '#D35E3B'); // Coral poente
-      grad.addColorStop(1.0, '#F4A258');  // Âmbar dourado do horizonte
+      grad.addColorStop(0, E.css.skyTop);
+      grad.addColorStop(0.45, E.css.skyMid);
+      grad.addColorStop(1.0, E.css.skyBottom);
       ctx.fillStyle = grad;
       ctx.fillRect(-20, -20, INTERNAL_WIDTH + 40, horizonY + 20);
 
-      // Microestrelas cintilantes na faixa superior roxa
-      for (let s = 8; s < INTERNAL_WIDTH; s += 22) {
-        const sx = (s * 19) % INTERNAL_WIDTH;
-        const sy = (s * 11) % Math.floor(horizonY * 0.36);
-        const tw = 0.35 + 0.65 * Math.abs(Math.sin(nowSec + s));
-        ctx.fillStyle = `rgba(240, 248, 255, ${tw.toFixed(2)})`;
-        ctx.fillRect(sx, sy, (s % 3 === 0 ? 1.5 : 1), (s % 3 === 0 ? 1.5 : 1));
+      if (isNight) {
+        // Microestrelas cintilantes no céu noturno
+        for (let s = 8; s < INTERNAL_WIDTH; s += 22) {
+          const sx = (s * 19) % INTERNAL_WIDTH;
+          const sy = (s * 11) % Math.floor(horizonY * 0.38);
+          const tw = 0.35 + 0.65 * Math.abs(Math.sin(nowSec + s));
+          ctx.fillStyle = `rgba(240, 248, 255, ${tw.toFixed(2)})`;
+          ctx.fillRect(sx, sy, (s % 3 === 0 ? 1.5 : 1), (s % 3 === 0 ? 1.5 : 1));
+        }
+
+        // Lua prateada
+        const moonX = INTERNAL_WIDTH * 0.80 - curveShift * 0.3;
+        const moonY = 24;
+        const mGlow = ctx.createRadialGradient(moonX, moonY, 4, moonX, moonY, 28);
+        mGlow.addColorStop(0, 'rgba(215, 238, 255, 0.45)');
+        mGlow.addColorStop(1, 'rgba(180, 220, 255, 0)');
+        ctx.fillStyle = mGlow;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F8FAFC';
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 11, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (S.sun > 0.1) {
+        // Sol diurno ou crepuscular sobre a orla
+        const sunX = INTERNAL_WIDTH * 0.72 - curveShift * 0.35;
+        const sunY = S.sunY || (isDusk ? horizonY - 14 : 26);
+        const sSize = S.sunSize || 1.0;
+        const sGlow = ctx.createRadialGradient(sunX, sunY, 3, sunX, sunY, 38 * sSize);
+        sGlow.addColorStop(0, E.css.sunCore || '#FFFDE7');
+        sGlow.addColorStop(0.4, E.css.sunGlow || '#FFEE58');
+        sGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = sGlow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 38 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 11 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nuvens suaves
+        ctx.fillStyle = isDusk ? 'rgba(255, 170, 80, 0.30)' : 'rgba(255, 255, 255, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(sunX - 45, sunY - 4, 34, 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX - 35, sunY - 8, 22, 9, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 50, sunY + 6, 42, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 60, sunY + 3, 26, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       // =========================================================================
@@ -1926,24 +2020,24 @@
 
         // Duas torres de suspensão com treliças
         const drawTower = (tx) => {
-          ctx.fillStyle = '#6E1C27';
+          ctx.fillStyle = isNight ? '#2A1820' : (isDusk ? '#6E1C27' : '#D32F2F');
           ctx.fillRect(tx - 3, towerTopY, 6, deckY - towerTopY + 4);
-          ctx.fillStyle = '#8B2635';
+          ctx.fillStyle = isNight ? '#44222E' : (isDusk ? '#8B2635' : '#EF5350');
           ctx.fillRect(tx - 1.5, towerTopY, 3, deckY - towerTopY + 4);
           // Travessas horizontais da torre
-          ctx.fillStyle = '#4A121A';
+          ctx.fillStyle = isNight ? '#1A0E14' : (isDusk ? '#4A121A' : '#B71C1C');
           ctx.fillRect(tx - 4, towerTopY + 12, 8, 2);
           ctx.fillRect(tx - 4, towerTopY + 24, 8, 2);
           ctx.fillRect(tx - 4, towerTopY + 34, 8, 2);
-          // Luz de topo dourada
-          ctx.fillStyle = '#FFE082';
+          // Luz de topo
+          ctx.fillStyle = isNight ? '#FFE082' : (isDusk ? '#FFE082' : '#FFF9C4');
           ctx.fillRect(tx - 1, towerTopY - 2, 2, 2);
         };
         drawTower(t1X);
         drawTower(t2X);
 
         // Cabo mestre de sustentação (catenária)
-        ctx.strokeStyle = '#5A1822';
+        ctx.strokeStyle = isNight ? '#351820' : (isDusk ? '#5A1822' : '#B71C1C');
         ctx.lineWidth = 1.4;
         ctx.beginPath();
         ctx.moveTo(bBridgeStart, deckY);
@@ -1953,7 +2047,7 @@
         ctx.stroke();
 
         // Tirantes verticais
-        ctx.strokeStyle = 'rgba(230, 180, 170, 0.45)';
+        ctx.strokeStyle = isNight ? 'rgba(230, 180, 170, 0.25)' : (isDusk ? 'rgba(230, 180, 170, 0.45)' : 'rgba(255, 255, 255, 0.65)');
         ctx.lineWidth = 0.8;
         for (let hx = bBridgeStart + 6; hx < bBridgeEnd; hx += 7) {
           let topWireY = deckY;
@@ -1972,9 +2066,9 @@
         }
 
         // Tabuleiro da ponte e tráfego iluminado
-        ctx.fillStyle = '#3A141A';
+        ctx.fillStyle = isNight ? '#161324' : (isDusk ? '#3A141A' : '#37474F');
         ctx.fillRect(bBridgeStart - 5, deckY, (bBridgeEnd - bBridgeStart) + 10, 3);
-        ctx.fillStyle = '#FFD166';
+        ctx.fillStyle = isNight ? '#FFE082' : (isDusk ? '#FFD166' : '#ECEFF1');
         for (let tx = bBridgeStart; tx < bBridgeEnd; tx += 9) {
           ctx.fillRect(tx, deckY + 0.5, 2, 1);
         }
@@ -2010,24 +2104,30 @@
           const bW = bd.w;
           const bH = bd.h;
 
-          // Silhueta do prédio em roxo-índigo crepúsculo
-          ctx.fillStyle = (b % 2 === 0) ? '#1E1A38' : '#2A234A';
+          // Silhueta do prédio adaptativa
+          if (isNight) {
+            ctx.fillStyle = (b % 2 === 0) ? '#1E1A38' : '#2A234A';
+          } else if (isDusk) {
+            ctx.fillStyle = (b % 2 === 0) ? '#2B1E32' : '#3E2A48';
+          } else {
+            ctx.fillStyle = (b % 2 === 0) ? '#2B3D52' : '#394E66';
+          }
           ctx.fillRect(bX, bY, bW, bH);
-          ctx.fillStyle = '#15122B';
+          ctx.fillStyle = isNight ? '#15122B' : (isDusk ? '#1D1424' : '#1F2C3B');
           ctx.fillRect(bX + bW - 2, bY, 2, bH);
 
           // Topos estilizados
           if (bd.style === 'spire') {
-            ctx.fillStyle = '#15122B';
+            ctx.fillStyle = isNight ? '#15122B' : '#1F2C3B';
             ctx.fillRect(bX + bW * 0.5 - 1, bY - 10, 2, 10);
             const beaconLit = (Math.sin(nowSec * 7 + b) > 0);
             ctx.fillStyle = beaconLit ? '#FF1744' : '#5A1122';
             ctx.fillRect(bX + bW * 0.5 - 1, bY - 11, 2, 2);
           } else if (bd.style === 'stepped') {
-            ctx.fillStyle = '#2A234A';
+            ctx.fillStyle = isNight ? '#2A234A' : '#394E66';
             ctx.fillRect(bX + 3, bY - 4, bW - 6, 4);
           } else if (bd.style === 'sloped') {
-            ctx.fillStyle = '#2A234A';
+            ctx.fillStyle = isNight ? '#2A234A' : '#394E66';
             ctx.beginPath();
             ctx.moveTo(bX, bY);
             ctx.lineTo(bX + bW, bY - 5);
@@ -2036,14 +2136,18 @@
             ctx.fill();
           }
 
-          // Janelas iluminadas (amarelo quente, âmbar e ciano)
+          // Janelas iluminadas (amarelo quente, âmbar e ciano) ou reflexos diurnos
           for (let wy = bY + 4; wy < horizonY - 16; wy += 4) {
             for (let wx = bX + 2; wx < bX + bW - 3; wx += 4) {
               const seed = (wx * 13 + wy * 17 + b * 23);
               if (seed % 3 !== 0) {
-                const isCyan = (seed % 7 === 0);
-                const isAmber = (seed % 5 === 0);
-                ctx.fillStyle = isCyan ? '#80DEEA' : (isAmber ? '#FFB74D' : '#FFE082');
+                if (isNight || isDusk) {
+                  const isCyan = (seed % 7 === 0);
+                  const isAmber = (seed % 5 === 0);
+                  ctx.fillStyle = isCyan ? '#80DEEA' : (isAmber ? '#FFB74D' : '#FFE082');
+                } else {
+                  ctx.fillStyle = (seed % 4 === 0) ? '#B2EBF2' : '#E0F7FA';
+                }
                 ctx.fillRect(wx, wy, 2, 2);
               }
             }
@@ -2051,25 +2155,31 @@
         }
 
         // --- C. ÁGUA DA BAÍA COM REFLEXOS CINTILANTES (horizonY - 12 até horizonY) ---
-        ctx.fillStyle = '#241F44';
+        ctx.fillStyle = isNight ? '#0C1322' : (isDusk ? '#241F44' : '#1976D2');
         ctx.fillRect(bx, horizonY - 12, PW, 12);
 
-        // Ondas de reflexo alaranjadas e douradas sob os prédios e ponte
+        // Ondas de reflexo
         for (let rx = bx + 20; rx < bx + PW - 10; rx += 7) {
           const wavePhase = Math.sin(nowSec * 4 + rx * 0.12);
           const rw = 5 + Math.abs(wavePhase) * 4;
           const ry = horizonY - 10 + ((rx * 7) % 9);
-          ctx.fillStyle = (rx % 2 === 0) ? '#E77A42' : '#F4A258';
+          if (isNight) {
+            ctx.fillStyle = '#38BDF8';
+          } else if (isDusk) {
+            ctx.fillStyle = (rx % 2 === 0) ? '#E77A42' : '#F4A258';
+          } else {
+            ctx.fillStyle = (rx % 2 === 0) ? '#64B5F6' : '#90CAF9';
+          }
           ctx.fillRect(rx + wavePhase * 1.5, ry, rw, 1);
         }
       }
       ctx.restore();
 
       // =========================================================================
-      // CAMADA 2 (PARALLAX MÉDIO - FATOR 0.38): CORDILHEIRA DE MONTANHAS ROXAS
+      // CAMADA 2 (PARALLAX MÉDIO - FATOR 0.38): CORDILHEIRA DE MONTANHAS
       // =========================================================================
       const midShift = ((scroll * 0.38 + curveShift * 0.6) % 640 + 640) % 640;
-      ctx.fillStyle = '#1C1635';
+      ctx.fillStyle = isNight ? '#0B101E' : (isDusk ? '#1C1635' : '#1B5E20');
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -40; x <= INTERNAL_WIDTH + 40; x += 14) {
@@ -2082,7 +2192,7 @@
       ctx.fill();
 
       // Encostas frontais sombreadas
-      ctx.fillStyle = '#2A2046';
+      ctx.fillStyle = isNight ? '#11182B' : (isDusk ? '#2A2046' : '#2E7D32');
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -40; x <= INTERNAL_WIDTH + 40; x += 14) {
@@ -2098,7 +2208,7 @@
       // CAMADA 3 (PARALLAX PRÓXIMO - FATOR 0.68): LINHA DE PALMEIRAS E VEGETAÇÃO
       // =========================================================================
       const nearShift = ((scroll * 0.68 + curveShift * 0.9) % 480 + 480) % 480;
-      ctx.fillStyle = '#0C1613';
+      ctx.fillStyle = isNight ? '#060A14' : (isDusk ? '#0C1613' : '#0D3315');
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -30; x <= INTERNAL_WIDTH + 30; x += 8) {
@@ -2112,45 +2222,86 @@
     }
 
     // =========================================================================
-    // PISTA 2: SERRA BRASILEIRA — PICOS ALPINOS AO FIM DE TARDE DOURADO
-    // Céu carmesim/dourado, sol poente, picos rochosos imponentes e silhueta de Araucárias
+    // PISTA 2: SERRA BRASILEIRA — PICOS ALPINOS E FLORESTA DE ARAUCÁRIAS
+    // Adaptável ao clima: dia azul, pôr do sol dourado ou noite estrelada
     // =========================================================================
     renderSkySerra(ctx, def, scroll, curveShift, horizonY, E, S) {
-      // 1. Céu em degradê dramático de serra
+      const nowSec = performance.now() * 0.003;
+      const isNight = S.night > 0.28;
+      const isDusk = S.dusk > 0.25;
+
+      // 1. Céu dinâmico conforme E.css e E.s
       const grad = ctx.createLinearGradient(0, -20, 0, horizonY);
-      grad.addColorStop(0, '#161C3D');    // Azul cobalto escuro
-      grad.addColorStop(0.35, '#6A1C38'); // Vinho / carmesim
-      grad.addColorStop(0.70, '#D94E24'); // Laranja fogo
-      grad.addColorStop(1.0, '#F8A838');  // Dourado brilhante no horizonte
+      grad.addColorStop(0, E.css.skyTop);
+      grad.addColorStop(0.45, E.css.skyMid);
+      grad.addColorStop(1.0, E.css.skyBottom);
       ctx.fillStyle = grad;
       ctx.fillRect(-20, -20, INTERNAL_WIDTH + 40, horizonY + 20);
 
-      // Sol poente imponente próximo ao horizonte
-      const sunX = INTERNAL_WIDTH * 0.72 - curveShift * 0.35;
-      const sunY = horizonY - 14;
-      const sGlow = ctx.createRadialGradient(sunX, sunY, 3, sunX, sunY, 44);
-      sGlow.addColorStop(0, 'rgba(255, 246, 208, 0.95)');
-      sGlow.addColorStop(0.35, 'rgba(255, 123, 37, 0.40)');
-      sGlow.addColorStop(1, 'rgba(255, 80, 20, 0)');
-      ctx.fillStyle = sGlow;
-      ctx.beginPath();
-      ctx.arc(sunX, sunY, 44, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#FFF8E1';
-      ctx.beginPath();
-      ctx.arc(sunX, sunY, 14, 0, Math.PI * 2);
-      ctx.fill();
+      // Sol ou Lua conforme clima/horário
+      if (isNight) {
+        // Microestrelas cintilantes no céu límpido de serra
+        for (let s = 10; s < INTERNAL_WIDTH; s += 24) {
+          const sx = (s * 17) % INTERNAL_WIDTH;
+          const sy = (s * 9) % Math.floor(horizonY * 0.40);
+          const tw = 0.35 + 0.65 * Math.abs(Math.sin(nowSec + s));
+          ctx.fillStyle = `rgba(240, 248, 255, ${tw.toFixed(2)})`;
+          ctx.fillRect(sx, sy, 1.2, 1.2);
+        }
+        // Lua cheia de serra com halo prateado
+        const moonX = INTERNAL_WIDTH * 0.74 - curveShift * 0.3;
+        const moonY = 24;
+        const mGlow = ctx.createRadialGradient(moonX, moonY, 3, moonX, moonY, 32);
+        mGlow.addColorStop(0, 'rgba(215, 238, 255, 0.45)');
+        mGlow.addColorStop(1, 'rgba(180, 220, 255, 0)');
+        ctx.fillStyle = mGlow;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 32, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F8FAFC';
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#CBD5E1';
+        ctx.beginPath();
+        ctx.arc(moonX - 3.5, moonY - 3, 2.5, 0, Math.PI * 2);
+        ctx.arc(moonX + 3.0, moonY + 4, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (S.sun > 0.1) {
+        // Sol diurno ou poente
+        const sunX = INTERNAL_WIDTH * 0.72 - curveShift * 0.35;
+        const sunY = S.sunY || (isDusk ? horizonY - 14 : 26);
+        const sSize = S.sunSize || 1.0;
+        const sGlow = ctx.createRadialGradient(sunX, sunY, 3, sunX, sunY, 44 * sSize);
+        sGlow.addColorStop(0, E.css.sunCore || 'rgba(255, 246, 208, 0.95)');
+        sGlow.addColorStop(0.35, E.css.sunGlow || 'rgba(255, 123, 37, 0.40)');
+        sGlow.addColorStop(1, 'rgba(255, 80, 20, 0)');
+        ctx.fillStyle = sGlow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 44 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = isDusk ? '#FFF8E1' : '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 13 * sSize, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Nuvens douradas horizontais de serra
-      ctx.fillStyle = 'rgba(255, 170, 80, 0.32)';
-      ctx.beginPath();
-      ctx.ellipse(sunX - 25, sunY + 4, 38, 3.5, 0, 0, Math.PI * 2);
-      ctx.ellipse(sunX + 28, sunY - 2, 42, 3.0, 0, 0, Math.PI * 2);
-      ctx.fill();
+        // Nuvens horizontais de serra
+        ctx.fillStyle = isDusk ? 'rgba(255, 170, 80, 0.32)' : 'rgba(255, 255, 255, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(sunX - 35, sunY + 4, 42, 4.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 32, sunY - 2, 46, 4.0, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Paletas das montanhas conforme clima/horário
+      const farPeakCol = isNight ? '#161324' : (isDusk ? '#38131E' : '#2A4B58');
+      const ridgeCol   = isNight ? '#251E36' : (isDusk ? '#7D2E42' : '#467182');
+      const slopeCol   = isNight ? '#121C18' : (isDusk ? '#251A24' : '#1D5A3A');
+      const pineCol    = isNight ? '#0A120E' : (isDusk ? '#121C16' : '#133D24');
 
       // Camada 1: Picos escarpados e agulhas de pedra (Parallax Lento 0.16)
       const farShift = ((scroll * 0.16 + curveShift * 0.3) % 640 + 640) % 640;
-      ctx.fillStyle = '#38131E';
+      ctx.fillStyle = farPeakCol;
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -40; x <= INTERNAL_WIDTH + 40; x += 16) {
@@ -2162,8 +2313,8 @@
       ctx.closePath();
       ctx.fill();
 
-      // Cristas rochosas iluminadas pelo sol
-      ctx.fillStyle = '#7D2E42';
+      // Cristas rochosas iluminadas
+      ctx.fillStyle = ridgeCol;
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -40; x <= INTERNAL_WIDTH + 40; x += 16) {
@@ -2177,7 +2328,7 @@
 
       // Camada 2: Encostas florestadas de pinhais (Parallax Médio 0.40)
       const midShift = ((scroll * 0.40 + curveShift * 0.6) % 540 + 540) % 540;
-      ctx.fillStyle = '#251A24';
+      ctx.fillStyle = slopeCol;
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -30; x <= INTERNAL_WIDTH + 30; x += 12) {
@@ -2191,7 +2342,7 @@
 
       // Camada 3: Silhuetas de Araucárias e Pinheiros no horizonte (Parallax Próximo 0.70)
       const nearShift = ((scroll * 0.70 + curveShift * 0.9) % 480 + 480) % 480;
-      ctx.fillStyle = '#121C16';
+      ctx.fillStyle = pineCol;
       ctx.beginPath();
       ctx.moveTo(-20, horizonY);
       for (let x = -20; x <= INTERNAL_WIDTH + 20; x += 6) {
@@ -2206,50 +2357,81 @@
     }
 
     // =========================================================================
-    // PISTA 3: NOITE URBANA — MEGALÓPOLE CYBERPUNK COM NEON E VIADUTOS ELEVADOS
-    // Céu meia-noite, constelações, lua prateada, arranha-céus com neon e fluxo de tráfego
+    // PISTA 3: CIDADE METRÓPOLE — ARRANHA-CÉUS MODERNOS E VIADUTOS EXPRESSOS
+    // Totalmente adaptável ao clima: dia ensolarado, crepúsculo ou noite iluminada
     // =========================================================================
     renderSkyNoite(ctx, def, scroll, curveShift, horizonY, E, S) {
       const nowSec = performance.now() * 0.003;
+      const isNight = S.night > 0.28;
+      const isDusk = S.dusk > 0.25;
 
-      // 1. Céu noturno profundo
+      // 1. Céu dinâmico conforme E.css e E.s
       const grad = ctx.createLinearGradient(0, -20, 0, horizonY);
-      grad.addColorStop(0, '#040712');
-      grad.addColorStop(0.45, '#0A1224');
-      grad.addColorStop(1.0, '#14203E');
+      grad.addColorStop(0, E.css.skyTop);
+      grad.addColorStop(0.45, E.css.skyMid);
+      grad.addColorStop(1.0, E.css.skyBottom);
       ctx.fillStyle = grad;
       ctx.fillRect(-20, -20, INTERNAL_WIDTH + 40, horizonY + 20);
 
-      // Céu estrelado denso
-      for (let s = 10; s < INTERNAL_WIDTH; s += 20) {
-        const sx = (s * 17) % INTERNAL_WIDTH;
-        const sy = (s * 9) % Math.floor(horizonY * 0.44);
-        const tw = 0.45 + 0.55 * Math.abs(Math.sin(nowSec * 1.5 + s));
-        ctx.fillStyle = `rgba(220, 240, 255, ${tw.toFixed(2)})`;
-        ctx.fillRect(sx, sy, 1.2, 1.2);
+      // Elementos celestes: Sol ou Lua
+      if (isNight) {
+        // Céu estrelado
+        for (let s = 10; s < INTERNAL_WIDTH; s += 20) {
+          const sx = (s * 17) % INTERNAL_WIDTH;
+          const sy = (s * 9) % Math.floor(horizonY * 0.42);
+          const tw = 0.45 + 0.55 * Math.abs(Math.sin(nowSec * 1.5 + s));
+          ctx.fillStyle = `rgba(220, 240, 255, ${tw.toFixed(2)})`;
+          ctx.fillRect(sx, sy, 1.2, 1.2);
+        }
+
+        // Lua prateada com halo
+        const moonX = INTERNAL_WIDTH * 0.82 - curveShift * 0.3;
+        const moonY = 24;
+        const mGlow = ctx.createRadialGradient(moonX, moonY, 4, moonX, moonY, 32);
+        mGlow.addColorStop(0, 'rgba(215, 238, 255, 0.45)');
+        mGlow.addColorStop(1, 'rgba(180, 220, 255, 0)');
+        ctx.fillStyle = mGlow;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 32, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F8FAFC';
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#CBD5E1';
+        ctx.beginPath();
+        ctx.arc(moonX - 3.5, moonY - 3, 2.5, 0, Math.PI * 2);
+        ctx.arc(moonX + 3.0, moonY + 4, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (S.sun > 0.1) {
+        // Sol de metrópole e nuvens
+        const sunX = INTERNAL_WIDTH * 0.75 - curveShift * 0.32;
+        const sunY = S.sunY || (isDusk ? horizonY - 14 : 26);
+        const sSize = S.sunSize || 1.0;
+        const sGlow = ctx.createRadialGradient(sunX, sunY, 3, sunX, sunY, 42 * sSize);
+        sGlow.addColorStop(0, E.css.sunCore || '#FFFDE7');
+        sGlow.addColorStop(0.4, E.css.sunGlow || '#FFEE58');
+        sGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = sGlow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 42 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 12 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nuvens urbanas suaves
+        ctx.fillStyle = isDusk ? 'rgba(255, 170, 80, 0.30)' : 'rgba(255, 255, 255, 0.48)';
+        ctx.beginPath();
+        ctx.ellipse(sunX - 42, sunY - 4, 36, 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX - 32, sunY - 8, 22, 9, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 48, sunY + 5, 40, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
 
-      // Lua prateada com halo de neblina
-      const moonX = INTERNAL_WIDTH * 0.82 - curveShift * 0.3;
-      const moonY = 25;
-      const mGlow = ctx.createRadialGradient(moonX, moonY, 4, moonX, moonY, 32);
-      mGlow.addColorStop(0, 'rgba(215, 238, 255, 0.45)');
-      mGlow.addColorStop(1, 'rgba(180, 220, 255, 0)');
-      ctx.fillStyle = mGlow;
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, 32, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#F8FAFC';
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, 13, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#CBD5E1';
-      ctx.beginPath();
-      ctx.arc(moonX - 3.5, moonY - 3, 2.5, 0, Math.PI * 2);
-      ctx.arc(moonX + 3.0, moonY + 4, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Camada 1: Megalópole com telões de LED e viadutos iluminados (Parallax Lento 0.16)
+      // Megalópole com arranha-céus e viaduto expresso
+      // Parallax Lento 0.16
       const PW = 640;
       const farShift = ((scroll * 0.16 + curveShift * 0.3) % PW + PW) % PW;
 
@@ -2262,83 +2444,88 @@
         for (let b = 0; b < 26; b++) {
           const bX = bx + b * 24;
           const seed = (b * 19) % 31;
-          const bH = 32 + seed * 1.4;
-          const bY = horizonY - 10 - bH;
+          const bH = 36 + seed * 1.5;
+          const bY = horizonY - bH;
 
-          ctx.fillStyle = (b % 2 === 0) ? '#0D1424' : '#141D34';
+          // Cores dos edifícios conforme dia/noite
+          if (isNight) {
+            ctx.fillStyle = (b % 2 === 0) ? '#0D1424' : '#141D34';
+          } else if (isDusk) {
+            ctx.fillStyle = (b % 2 === 0) ? '#2B1A28' : '#3E2436';
+          } else {
+            ctx.fillStyle = (b % 2 === 0) ? '#243B53' : '#334E68';
+          }
           ctx.fillRect(bX, bY, 22, bH);
-          ctx.fillStyle = '#080C16';
+
+          // Sombra lateral/perspectiva
+          ctx.fillStyle = isNight ? '#080C16' : (isDusk ? '#1A0F18' : '#102A43');
           ctx.fillRect(bX + 20, bY, 2, bH);
 
-          // Faixas verticais de neon (magenta, ciano, amarelo)
-          if (b % 4 === 0) {
-            ctx.fillStyle = '#FF007F';
-            ctx.fillRect(bX + 2, bY + 2, 2, bH - 4);
-          } else if (b % 4 === 2) {
-            ctx.fillStyle = '#00F0FF';
-            ctx.fillRect(bX + 18, bY + 2, 2, bH - 4);
+          // Faixas verticais decorativas / neon
+          if (isNight) {
+            if (b % 4 === 0) {
+              ctx.fillStyle = '#FF007F';
+              ctx.fillRect(bX + 2, bY + 2, 2, bH - 6);
+            } else if (b % 4 === 2) {
+              ctx.fillStyle = '#00F0FF';
+              ctx.fillRect(bX + 18, bY + 2, 2, bH - 6);
+            }
+          } else if (!isNight && !isDusk) {
+            // Vidros reflexivos diurnos
+            if (b % 3 === 0) {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+              ctx.fillRect(bX + 2, bY + 2, 3, bH - 4);
+            }
           }
 
-          // Janelas iluminadas
-          for (let wy = bY + 4; wy < horizonY - 14; wy += 4) {
+          // Janelas iluminadas (noturnas ou reflexivas diurnas)
+          for (let wy = bY + 4; wy < horizonY - 10; wy += 4) {
             for (let wx = bX + 5; wx < bX + 18; wx += 4) {
               if ((wx * 11 + wy * 13 + b) % 3 !== 0) {
-                ctx.fillStyle = (b % 3 === 0) ? '#00E5FF' : '#FFE082';
+                if (isNight) {
+                  ctx.fillStyle = (b % 3 === 0) ? '#00E5FF' : '#FFE082';
+                } else if (isDusk) {
+                  ctx.fillStyle = (b % 3 === 0) ? '#FF9E80' : '#FFE082';
+                } else {
+                  // Dia: reflexo suave das janelas de vidro
+                  ctx.fillStyle = (b % 2 === 0) ? '#9FB3C8' : '#D9E2EC';
+                }
                 ctx.fillRect(wx, wy, 2, 2);
               }
             }
           }
 
-          // Antena com balizamento
+          // Antena com sinalizador de topo
           if (b % 3 === 1) {
-            ctx.fillStyle = '#080C16';
+            ctx.fillStyle = isNight ? '#080C16' : '#627D98';
             ctx.fillRect(bX + 10, bY - 8, 2, 8);
-            ctx.fillStyle = (Math.sin(nowSec * 8 + b) > 0) ? '#FF1744' : '#4A0D15';
+            ctx.fillStyle = (Math.sin(nowSec * 8 + b) > 0) ? '#FF1744' : (isNight ? '#4A0D15' : '#D32F2F');
             ctx.fillRect(bX + 10, bY - 9, 2, 2);
           }
         }
 
-        // Viaduto elevado com tráfego contínuo iluminado
-        const vY = horizonY - 14;
-        ctx.fillStyle = '#0A0F1D';
-        ctx.fillRect(bx, vY, PW, 4);
-        for (let tx = bx; tx < bx + PW; tx += 12) {
-          ctx.fillStyle = '#FF2D55'; // Lanternas vermelhas
-          ctx.fillRect(tx, vY + 1, 3, 1.5);
-          ctx.fillStyle = '#FFF9D2'; // Faróis brancos no fluxo oposto
-          ctx.fillRect(tx + 6, vY + 1, 3, 1.5);
+        // Viaduto expresso no rodapé dos edifícios (conectado suavemente ao horizonte)
+        const vY = horizonY - 8;
+        ctx.fillStyle = isNight ? '#0B1120' : (isDusk ? '#201625' : '#1F2937');
+        ctx.fillRect(bx, vY, PW, 8);
+        ctx.fillStyle = isNight ? '#1E293B' : (isDusk ? '#3D2F44' : '#4B5563');
+        ctx.fillRect(bx, vY, PW, 1.5); // Guarda-corpo superior
+
+        // Fluxo contínuo de tráfego veicular sobre o viaduto
+        for (let tx = bx; tx < bx + PW; tx += 14) {
+          if (isNight || isDusk) {
+            ctx.fillStyle = '#FF2D55'; // Lanternas vermelhas
+            ctx.fillRect(tx, vY + 3, 3, 1.5);
+            ctx.fillStyle = '#FFF9D2'; // Faróis brancos/dourados no fluxo oposto
+            ctx.fillRect(tx + 7, vY + 3, 3, 1.5);
+          } else {
+            // Dia: pequenos carros em movimento no viaduto
+            ctx.fillStyle = (tx % 3 === 0) ? '#DC2626' : ((tx % 3 === 1) ? '#2563EB' : '#F3F4F6');
+            ctx.fillRect(tx, vY + 2, 4, 2);
+          }
         }
       }
       ctx.restore();
-
-      // Camada 2: Distrito comercial e prédios médios (Parallax Médio 0.40)
-      const midShift = ((scroll * 0.40 + curveShift * 0.6) % 520 + 520) % 520;
-      ctx.fillStyle = '#090F1E';
-      ctx.beginPath();
-      ctx.moveTo(-20, horizonY);
-      for (let x = -30; x <= INTERNAL_WIDTH + 30; x += 18) {
-        const mx = x + midShift;
-        const bh = 14 + ((mx * 7) % 18);
-        ctx.lineTo(x, horizonY - bh);
-        ctx.lineTo(x + 14, horizonY - bh);
-      }
-      ctx.lineTo(INTERNAL_WIDTH + 20, horizonY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Camada 3: Muros de contenção acústica e silhuetas de rodovia (Parallax Próximo 0.70)
-      const nearShift = ((scroll * 0.70 + curveShift * 0.9) % 460 + 460) % 460;
-      ctx.fillStyle = '#050912';
-      ctx.beginPath();
-      ctx.moveTo(-20, horizonY);
-      for (let x = -20; x <= INTERNAL_WIDTH + 20; x += 10) {
-        const nx = x + nearShift;
-        const h = 7 + ((nx * 5) % 6);
-        ctx.lineTo(x, horizonY - h);
-      }
-      ctx.lineTo(INTERNAL_WIDTH + 20, horizonY);
-      ctx.closePath();
-      ctx.fill();
     }
 
     // Efeitos de clima por cima de toda a cena (antes do HUD): luz, chuva, neve e brilho do sol
@@ -2489,7 +2676,7 @@
       }
 
       const inTunnel = (refSeg && !!refSeg.tunnel);
-      const nightIntensity = inTunnel ? 1.0 : (this.envCur ? Math.max(def.theme === 'NOITE' ? 1 : 0, this.envCur.s.night || 0) : (def.theme === 'NOITE' ? 1 : 0));
+      const nightIntensity = inTunnel ? 1.0 : (this.envCur ? (this.envCur.s.night || 0) : 0);
       const isNight = nightIntensity > 0.28;
       for (let n = DRAW_DISTANCE - 1; n >= 0; n--) {
         const segment = this.track.segments[(baseSegment.index + n) % totalSegs];
@@ -2632,38 +2819,39 @@
       const p1 = segment.p1.screen;
       if (p1.w < 8) return;
       const isStone = (segment.tunnel === 'stone') || (def && def.theme === 'SERRA');
-      const portalH = p1.w * 0.94;
-      const postW = Math.max(3, p1.w * 0.16);
-      const leftX = p1.x - p1.w * 1.16;
-      const rightX = p1.x + p1.w * 1.16;
+      const portalH = p1.w * 0.95;
+      const postW = Math.max(3.5, p1.w * 0.16);
+      // wallDist = 1.38 posiciona os pilares fora da pista e da zebra (zebra termina em 1.17)
+      const leftInner = p1.x - p1.w * 1.38;
+      const rightInner = p1.x + p1.w * 1.38;
+      const leftOuter = leftInner - postW;
+      const rightOuter = rightInner + postW;
       const topY = p1.y - portalH;
+      const bannerH = Math.max(5.5, p1.w * 0.22);
 
       ctx.save();
-      // Parede de rocha da montanha em torno do portal (veda completamente o céu externo)
+      // Parede de rocha da montanha acima do arco (veda o céu estritamente acima do pórtico, sem invadir a pista)
       const rockCol = isStone ? '#2E221B' : '#0B111E';
       if (topY > 0) {
         ctx.fillStyle = rockCol;
         ctx.fillRect(0, 0, INTERNAL_WIDTH, topY + 2);
-        ctx.fillRect(0, topY, Math.max(0, leftX - postW), portalH + 8);
-        ctx.fillRect(rightX + postW, topY, Math.max(0, INTERNAL_WIDTH - (rightX + postW)), portalH + 8);
       }
 
-      // Pilares do portal
+      // Pilares laterais do portal
       ctx.fillStyle = isStone ? '#3E2F26' : '#1E293B';
-      ctx.fillRect(leftX - postW, topY, postW, portalH);
-      ctx.fillRect(rightX, topY, postW, portalH);
+      ctx.fillRect(leftOuter, topY, postW, portalH);
+      ctx.fillRect(rightInner, topY, postW, portalH);
       ctx.fillStyle = isStone ? '#5A463B' : '#334155';
-      ctx.fillRect(leftX - postW * 0.7, topY, postW * 0.35, portalH);
-      ctx.fillRect(rightX + postW * 0.35, topY, postW * 0.35, portalH);
+      ctx.fillRect(leftOuter + postW * 0.3, topY, postW * 0.35, portalH);
+      ctx.fillRect(rightInner + postW * 0.35, topY, postW * 0.35, portalH);
 
       // Arco superior
-      const spanW = (rightX + postW) - (leftX - postW);
-      const bannerH = Math.max(5, p1.w * 0.22);
+      const spanW = rightOuter - leftOuter;
       ctx.fillStyle = isStone ? '#2E221B' : '#0F172A';
-      ctx.fillRect(leftX - postW, topY, spanW, bannerH);
+      ctx.fillRect(leftOuter, topY, spanW, bannerH);
       ctx.strokeStyle = isStone ? '#8D6E63' : '#00E5FF';
       ctx.lineWidth = Math.max(1, p1.w * 0.015);
-      ctx.strokeRect(leftX - postW, topY, spanW, bannerH);
+      ctx.strokeRect(leftOuter, topY, spanW, bannerH);
 
       // Placa de identificação no portal
       if (p1.w > 30) {
@@ -2729,8 +2917,9 @@
       // Laterais: Túnel 3D, Ponte Suspensa ou Grama Natural
       if (segment.tunnel) {
         const isStone = (segment.tunnel === 'stone');
-        const wallH1 = p1.w * 0.88;
-        const wallH2 = p2.w * 0.88;
+        const wallDist = 1.38; // Posicionado além da zebra (rumble = 1.17) para nunca cortar a pista
+        const wallH1 = p1.w * 0.90;
+        const wallH2 = p2.w * 0.90;
         const roofY1 = p1.y - wallH1;
         const roofY2 = p2.y - wallH2;
 
@@ -2739,23 +2928,27 @@
         const rightEdge1 = p1.x + p1.w + r1;
         const rightEdge2 = p2.x + p2.w + r2;
 
+        const leftWall1 = p1.x - p1.w * wallDist;
+        const leftWall2 = p2.x - p2.w * wallDist;
+        const rightWall1 = p1.x + p1.w * wallDist;
+        const rightWall2 = p2.x + p2.w * wallDist;
+
         const isLight = Math.floor(segment.index / 3) % 2 === 0;
         const wallBase = isStone ? (isLight ? '#2A201A' : '#1C1512') : (isLight ? '#1A2332' : '#0F1622');
         const wallHighlight = isStone ? '#3D2F27' : '#2C3B54';
+        const walkCol = isStone ? (isLight ? '#382B22' : '#271D17') : (isLight ? '#1E293B' : '#131B26');
 
-        // Parede Esquerda Vertical
-        this.drawPoly(ctx, leftEdge1 - p1.w * 0.28, bottomY, leftEdge1, bottomY, leftEdge2, p2.y, leftEdge2 - p2.w * 0.28, p2.y, wallBase);
-        this.drawPoly(ctx, leftEdge1 - p1.w * 0.28, roofY1, leftEdge1, roofY1, leftEdge2, roofY2, leftEdge2 - p2.w * 0.28, roofY2, wallBase);
-        this.drawPoly(ctx, leftEdge1 - p1.w * 0.28, bottomY, leftEdge1 - p1.w * 0.28, roofY1, leftEdge2 - p2.w * 0.28, roofY2, leftEdge2 - p2.w * 0.28, p2.y, wallHighlight);
+        // Acostamento/calçada entre a zebra e a parede do túnel
+        this.drawPoly(ctx, leftWall1, bottomY, leftEdge1, bottomY, leftEdge2, p2.y, leftWall2, p2.y, walkCol);
+        this.drawPoly(ctx, rightEdge1, bottomY, rightWall1, bottomY, rightWall2, p2.y, rightEdge2, p2.y, walkCol);
 
-        // Parede Direita Vertical
-        this.drawPoly(ctx, rightEdge1, bottomY, rightEdge1 + p1.w * 0.28, bottomY, rightEdge2 + p2.w * 0.28, p2.y, rightEdge2, p2.y, wallBase);
-        this.drawPoly(ctx, rightEdge1, roofY1, rightEdge1 + p1.w * 0.28, roofY1, rightEdge2 + p2.w * 0.28, roofY2, rightEdge2, roofY2, wallBase);
-        this.drawPoly(ctx, rightEdge1 + p1.w * 0.28, bottomY, rightEdge1 + p1.w * 0.28, roofY1, rightEdge2 + p2.w * 0.28, roofY2, rightEdge2 + p2.w * 0.28, p2.y, wallHighlight);
+        // Parede Esquerda e Direita (além do acostamento, estendendo até as bordas da tela)
+        this.drawPoly(ctx, 0, bottomY, leftWall1, bottomY, leftWall2, p2.y, 0, p2.y, wallBase);
+        this.drawPoly(ctx, rightWall1, bottomY, INTERNAL_WIDTH, bottomY, INTERNAL_WIDTH, p2.y, rightWall2, p2.y, wallBase);
 
         // Teto do Túnel (Abóbada escura conectando os dois lados)
         const roofColor = isStone ? (isLight ? '#140E0C' : '#0D0907') : (isLight ? '#0D131C' : '#070B11');
-        this.drawPoly(ctx, leftEdge1, roofY1, rightEdge1, roofY1, rightEdge2, roofY2, leftEdge2, roofY2, roofColor);
+        this.drawPoly(ctx, leftWall1, roofY1, rightWall1, roofY1, rightWall2, roofY2, leftWall2, roofY2, roofColor);
 
         // Preenchimento de rocha escura acima do teto para que o céu exterior nunca vaze
         const rockCap = isStone ? '#140E0C' : '#070B11';
@@ -2787,22 +2980,10 @@
           this.drawPoly(ctx, p1.x - neonW1, roofY1, p1.x + neonW1, roofY1, p2.x + neonW2, roofY2, p2.x - neonW2, roofY2, neonCol);
         }
       } else if (segment.bridge) {
-        // Laterais da Ponte / Viaduto: Abismo com colunas de concreto e guardrails
+        // Laterais da Ponte / Viaduto: Abismo escuro nas laterais (sem colunas invasivas no chão)
         const abyssCol = '#0A0E17';
         this.drawPoly(ctx, 0, bottomY, p1.x - p1.w - r1, bottomY, p2.x - p2.w - r2, p2.y, 0, p2.y, abyssCol);
         this.drawPoly(ctx, p1.x + p1.w + r1, bottomY, INTERNAL_WIDTH, bottomY, INTERNAL_WIDTH, p2.y, p2.x + p2.w + r2, p2.y, abyssCol);
-
-        // Pilares verticais discretos descendo sob a estrutura do viaduto (sem invadir a pista ou solo anterior!)
-        if (segment.index % 6 === 0 && p1.w > 14) {
-          const colW = Math.max(2, p1.w * 0.06);
-          const colH = Math.min(24, Math.max(4, p1.w * 0.22));
-          ctx.fillStyle = '#475569';
-          ctx.fillRect(p1.x - p1.w - r1 - colW, bottomY, colW, colH);
-          ctx.fillRect(p1.x + p1.w + r1, bottomY, colW, colH);
-          ctx.fillStyle = '#64748B';
-          ctx.fillRect(p1.x - p1.w - r1 - colW * 0.7, bottomY, colW * 0.4, colH);
-          ctx.fillRect(p1.x + p1.w + r1 + colW * 0.3, bottomY, colW * 0.4, colH);
-        }
       } else {
         // Grama lateral padrão
         this.drawPoly(ctx, 0, bottomY, p1.x - p1.w - r1, bottomY, p2.x - p2.w - r2, p2.y, 0, p2.y, c.grass);

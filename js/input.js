@@ -51,6 +51,7 @@
 
       this.dpadOpacity = this.loadOpacity('lh44_dpad_opacity', 0.78);
       this.btnsOpacity = this.loadOpacity('lh44_btns_opacity', 0.78);
+      this.controlsScale = this.loadScale('lh44_controls_scale', 1.0);
 
       this.syncBodyClasses();
       this.initEvents();
@@ -77,6 +78,23 @@
     }
 
     saveOpacity(key, val) {
+      try {
+        localStorage.setItem(key, val.toFixed(2));
+      } catch (_) {}
+    }
+
+    loadScale(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw !== null) {
+          const v = parseFloat(raw);
+          if (!isNaN(v)) return Math.max(0.65, Math.min(1.50, v));
+        }
+      } catch (_) {}
+      return fallback;
+    }
+
+    saveScale(key, val) {
       try {
         localStorage.setItem(key, val.toFixed(2));
       } catch (_) {}
@@ -253,15 +271,33 @@
           return;
         }
 
-        // Mapeamento de KeyCodes sintetizados pelo Android para botões de controle físico
+        // Mapeamento de KeyCodes sintetizados pelo Android para botões de controle físico (GameSir X5 / etc.)
         switch (e.keyCode) {
-          case 96: // BUTTON_A
+          case 96: // BUTTON_A (Acelera na corrida e Confirma nos menus)
+            this.keys.up = true;
+            if (!this.enter) this.justPressedEnter = true;
+            this.enter = true;
+            this.syncCombinedInputs();
+            return;
+          case 97: // BUTTON_B (Freia na corrida e Volta nos menus)
+            this.keys.down = true;
+            if (!this.esc) this.justPressedEsc = true;
+            this.esc = true;
+            this.syncCombinedInputs();
+            return;
+          case 105: // BUTTON_R2 / RT (Gatilho de aceleração do Android)
+            this.keys.up = true;
+            this.syncCombinedInputs();
+            return;
+          case 104: // BUTTON_L2 / LT (Gatilho de frenagem do Android)
+            this.keys.down = true;
+            this.syncCombinedInputs();
+            return;
           case 23: // DPAD_CENTER
           case 108: // BUTTON_START
             if (!this.enter) this.justPressedEnter = true;
             this.enter = true;
             return;
-          case 97: // BUTTON_B
           case 109: // BUTTON_SELECT
             if (!this.esc) this.justPressedEsc = true;
             this.esc = true;
@@ -351,11 +387,33 @@
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
           return;
         }
-        if (e.keyCode === 4 || e.key === 'Back' || e.code === 'GoBack' || e.keyCode === 97 || e.keyCode === 109) {
+        if (e.keyCode === 96) {
+          this.keys.up = false;
+          this.enter = false;
+          this.syncCombinedInputs();
+          return;
+        }
+        if (e.keyCode === 97) {
+          this.keys.down = false;
+          this.esc = false;
+          this.syncCombinedInputs();
+          return;
+        }
+        if (e.keyCode === 105) {
+          this.keys.up = false;
+          this.syncCombinedInputs();
+          return;
+        }
+        if (e.keyCode === 104) {
+          this.keys.down = false;
+          this.syncCombinedInputs();
+          return;
+        }
+        if (e.keyCode === 4 || e.key === 'Back' || e.code === 'GoBack' || e.keyCode === 109) {
           this.esc = false;
           return;
         }
-        if (e.keyCode === 96 || e.keyCode === 23 || e.keyCode === 108) {
+        if (e.keyCode === 23 || e.keyCode === 108) {
           this.enter = false;
           return;
         }
@@ -425,11 +483,17 @@
     setupOpacityAndFullscreenUI() {
       const vp = document.getElementById('viewport');
       const panel = document.getElementById('opacity-panel');
-      const openBtn = document.getElementById('opacity-toggle-btn');
+      const gearBtn = document.getElementById('gear-btn');
       const closeBtn = document.getElementById('opacity-close-btn');
-      const fsBtn = document.getElementById('fullscreen-btn');
+      const resumeBtn = document.getElementById('panel-resume-btn');
       const panelFsBtn = document.getElementById('panel-fullscreen-btn');
-      const pauseBtn = document.getElementById('pause-touch-btn');
+
+      const scaleValEl = document.getElementById('ctrl-scale-val');
+      const scaleFill = document.getElementById('scale-slider-fill');
+      const scaleThumb = document.getElementById('scale-slider-thumb');
+      const scaleSlider = document.getElementById('scale-slider');
+      const scaleMinus = document.getElementById('scale-minus');
+      const scalePlus = document.getElementById('scale-plus');
 
       const dpadValEl = document.getElementById('dpad-opacity-val');
       const dpadFill = document.getElementById('dpad-slider-fill');
@@ -440,6 +504,23 @@
       const btnsFill = document.getElementById('btns-slider-fill');
       const btnsThumb = document.getElementById('btns-slider-thumb');
       const btnsSlider = document.getElementById('btns-slider');
+
+      const applyScaleUI = () => {
+        if (vp) {
+          vp.style.setProperty('--controls-scale', this.controlsScale.toFixed(2));
+        }
+        const sPct = Math.round(this.controlsScale * 100);
+        if (scaleValEl) scaleValEl.textContent = `${sPct}%`;
+        const sRatio = ((this.controlsScale - 0.65) / 0.85) * 100;
+        if (scaleFill) scaleFill.style.width = `${Math.max(0, Math.min(100, sRatio))}%`;
+        if (scaleThumb) scaleThumb.style.left = `${Math.max(0, Math.min(100, sRatio))}%`;
+      };
+
+      const setControlsScale = (val) => {
+        this.controlsScale = Math.max(0.65, Math.min(1.50, val));
+        this.saveScale('lh44_controls_scale', this.controlsScale);
+        applyScaleUI();
+      };
 
       const applyOpacityUI = () => {
         if (vp) {
@@ -471,6 +552,7 @@
         applyOpacityUI();
       };
 
+      applyScaleUI();
       applyOpacityUI();
 
       const bindCustomSlider = (sliderEl, setter) => {
@@ -480,7 +562,7 @@
           const pt = this.toViewportLocal(clientX, clientY);
           const rect = this.getElementLocalRect(sliderEl);
           const ratio = Math.max(0, Math.min(1, (pt.x - rect.x) / Math.max(1, rect.w)));
-          setter(0.15 + ratio * 0.85);
+          setter(ratio);
         };
 
         sliderEl.addEventListener('touchstart', (e) => {
@@ -516,8 +598,9 @@
         });
       };
 
-      bindCustomSlider(dpadSlider, setDpadOpacity);
-      bindCustomSlider(btnsSlider, setBtnsOpacity);
+      bindCustomSlider(scaleSlider, (ratio) => setControlsScale(0.65 + ratio * 0.85));
+      bindCustomSlider(dpadSlider, (ratio) => setDpadOpacity(0.15 + ratio * 0.85));
+      bindCustomSlider(btnsSlider, (ratio) => setBtnsOpacity(0.15 + ratio * 0.85));
 
       const bindTap = (el, fn) => {
         if (!el) return;
@@ -538,6 +621,8 @@
         });
       };
 
+      bindTap(scaleMinus, () => setControlsScale(this.controlsScale - 0.10));
+      bindTap(scalePlus, () => setControlsScale(this.controlsScale + 0.10));
       bindTap(document.getElementById('dpad-minus'), () => setDpadOpacity(this.dpadOpacity - 0.10));
       bindTap(document.getElementById('dpad-plus'), () => setDpadOpacity(this.dpadOpacity + 0.10));
       bindTap(document.getElementById('btns-minus'), () => setBtnsOpacity(this.btnsOpacity - 0.10));
@@ -560,35 +645,43 @@
         });
       }
 
-      bindTap(openBtn, () => {
+      bindTap(gearBtn, () => {
         this.notifyGesture(false);
         if (panel) {
-          panel.classList.toggle('open');
-          if (openBtn) openBtn.classList.toggle('active', panel.classList.contains('open'));
+          const isOpen = panel.classList.contains('open');
+          if (isOpen) {
+            panel.classList.remove('open');
+            if (gearBtn) gearBtn.classList.remove('active');
+          } else {
+            panel.classList.add('open');
+            if (gearBtn) gearBtn.classList.add('active');
+            // Clicar na engrenagem pausa o jogo (envia pulso Esc)
+            this.justPressedEsc = true;
+          }
         }
       });
 
       bindTap(closeBtn, () => {
         if (panel) panel.classList.remove('open');
-        if (openBtn) openBtn.classList.remove('active');
+        if (gearBtn) gearBtn.classList.remove('active');
+      });
+
+      bindTap(resumeBtn, () => {
+        if (panel) panel.classList.remove('open');
+        if (gearBtn) gearBtn.classList.remove('active');
+        // Botão Continuar despausa o jogo
+        this.justPressedEsc = true;
       });
 
       const handleFsToggle = () => {
         this.notifyGesture(false);
         this.toggleFullscreen();
       };
-      bindTap(fsBtn, handleFsToggle);
       bindTap(panelFsBtn, handleFsToggle);
-
-      bindTap(pauseBtn, () => {
-        this.notifyGesture(true);
-        this.justPressedEsc = true;
-      });
 
       const updateFsLabels = () => {
         const active = this.isFullscreenActive();
         const label = active ? '⛶ SAIR' : '⛶ TELA CHEIA';
-        if (fsBtn) fsBtn.textContent = label;
         if (panelFsBtn) panelFsBtn.textContent = label;
       };
       document.addEventListener('fullscreenchange', updateFsLabels);
@@ -638,7 +731,8 @@
           this.notifyGesture(true);
           if (panel && panel.classList.contains('open')) {
             panel.classList.remove('open');
-            if (openBtn) openBtn.classList.remove('active');
+            const gearBtn = document.getElementById('gear-btn');
+            if (gearBtn) gearBtn.classList.remove('active');
             return;
           }
           const pt = this.toViewportLocal(clientX, clientY);
@@ -666,27 +760,21 @@
       }
 
       // =====================================================
-      // 1. CRUZ DIRECIONAL SNES (4 DIREÇÕES + DESLIZE SUAVE)
+      // 1. SETAS DIRECIONAIS TOUCH: APENAS ESQUERDA (◀) E DIREITA (▶)
       // =====================================================
       const dpadCluster = document.getElementById('dpad-cluster');
-      const armUp = document.getElementById('dpad-up');
-      const armDown = document.getElementById('dpad-down');
       const armLeft = document.getElementById('dpad-left');
       const armRight = document.getElementById('dpad-right');
 
-      const applyDpadState = (u, d, l, r, vibrateOnNew = false) => {
-        const changed = (u !== this.touch.dpadUp) || (d !== this.touch.dpadDown) ||
-                        (l !== this.touch.dpadLeft) || (r !== this.touch.dpadRight);
-        const newPress = (u && !this.touch.dpadUp) || (d && !this.touch.dpadDown) ||
-                         (l && !this.touch.dpadLeft) || (r && !this.touch.dpadRight);
+      const applySteerState = (l, r, vibrateOnNew = false) => {
+        const changed = (l !== this.touch.dpadLeft) || (r !== this.touch.dpadRight);
+        const newPress = (l && !this.touch.dpadLeft) || (r && !this.touch.dpadRight);
 
-        this.touch.dpadUp = u;
-        this.touch.dpadDown = d;
+        this.touch.dpadUp = false;
+        this.touch.dpadDown = false;
         this.touch.dpadLeft = l;
         this.touch.dpadRight = r;
 
-        if (armUp) armUp.classList.toggle('active', u);
-        if (armDown) armDown.classList.toggle('active', d);
         if (armLeft) armLeft.classList.toggle('active', l);
         if (armRight) armRight.classList.toggle('active', r);
 
@@ -694,68 +782,62 @@
         if (vibrateOnNew && newPress && navigator.vibrate) navigator.vibrate(12);
       };
 
-      const evalDpadPoint = (clientX, clientY) => {
-        if (!dpadCluster) return { u: false, d: false, l: false, r: false };
+      const evalSteerPoint = (clientX, clientY) => {
+        if (!dpadCluster) return { l: false, r: false };
         const pt = this.toViewportLocal(clientX, clientY);
         const rect = this.getElementLocalRect(dpadCluster);
-        const cx = rect.x + rect.w * 0.5;
-        const cy = rect.y + rect.h * 0.5;
-        const dx = pt.x - cx;
-        const dy = pt.y - cy;
-        const dist = Math.hypot(dx, dy);
-        const deadzone = rect.w * 0.10;
-        if (dist < deadzone || dist > rect.w * 0.58) return { u: false, d: false, l: false, r: false };
+        const pad = Math.max(12, rect.w * 0.22);
+        if (pt.x < rect.x - pad || pt.x > rect.x + rect.w + pad ||
+            pt.y < rect.y - pad || pt.y > rect.y + rect.h + pad) {
+          return { l: false, r: false };
+        }
 
-        const absX = Math.abs(dx);
-        const absY = Math.abs(dy);
-        // Setas bem espaçadas: zona angular limpa para esquerda/direita e cima/baixo
-        const l = dx < -deadzone && absX >= absY * 0.72;
-        const r = dx > deadzone && absX >= absY * 0.72;
-        const u = dy < -deadzone && absY > absX * 1.05;
-        const d = dy > deadzone && absY > absX * 1.05;
-        return { u, d, l, r };
+        const midX = rect.x + rect.w * 0.5;
+        const deadzone = rect.w * 0.05;
+        return {
+          l: pt.x < midX - deadzone,
+          r: pt.x > midX + deadzone
+        };
       };
 
       if (dpadCluster) {
-        const updateDpadFromTouches = (e, isStart = false) => {
+        const updateSteerFromTouches = (e, isStart = false) => {
           e.preventDefault();
           e.stopPropagation();
           if (isStart) this.notifyGesture(true);
-          let u = false, d = false, l = false, r = false;
+          let l = false, r = false;
           for (let i = 0; i < e.touches.length; i++) {
             const t = e.touches[i];
-            const res = evalDpadPoint(t.clientX, t.clientY);
-            u = u || res.u;
-            d = d || res.d;
+            const res = evalSteerPoint(t.clientX, t.clientY);
             l = l || res.l;
             r = r || res.r;
           }
-          applyDpadState(u, d, l, r, true);
+          applySteerState(l, r, true);
         };
 
-        dpadCluster.addEventListener('touchstart', (e) => updateDpadFromTouches(e, true), { passive: false });
-        dpadCluster.addEventListener('touchmove', (e) => updateDpadFromTouches(e, false), { passive: false });
-        dpadCluster.addEventListener('touchend', (e) => updateDpadFromTouches(e, false), { passive: false });
-        dpadCluster.addEventListener('touchcancel', (e) => updateDpadFromTouches(e, false), { passive: false });
+        dpadCluster.addEventListener('touchstart', (e) => updateSteerFromTouches(e, true), { passive: false });
+        dpadCluster.addEventListener('touchmove', (e) => updateSteerFromTouches(e, false), { passive: false });
+        dpadCluster.addEventListener('touchend', (e) => updateSteerFromTouches(e, false), { passive: false });
+        dpadCluster.addEventListener('touchcancel', (e) => updateSteerFromTouches(e, false), { passive: false });
 
-        let mouseDpadDown = false;
+        let mouseSteerDown = false;
         dpadCluster.addEventListener('mousedown', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          mouseDpadDown = true;
+          mouseSteerDown = true;
           this.notifyGesture(false);
-          const res = evalDpadPoint(e.clientX, e.clientY);
-          applyDpadState(res.u, res.d, res.l, res.r, false);
+          const res = evalSteerPoint(e.clientX, e.clientY);
+          applySteerState(res.l, res.r, false);
         });
         window.addEventListener('mousemove', (e) => {
-          if (!mouseDpadDown) return;
-          const res = evalDpadPoint(e.clientX, e.clientY);
-          applyDpadState(res.u, res.d, res.l, res.r, false);
+          if (!mouseSteerDown) return;
+          const res = evalSteerPoint(e.clientX, e.clientY);
+          applySteerState(res.l, res.r, false);
         });
         window.addEventListener('mouseup', () => {
-          if (!mouseDpadDown) return;
-          mouseDpadDown = false;
-          applyDpadState(false, false, false, false, false);
+          if (!mouseSteerDown) return;
+          mouseSteerDown = false;
+          applySteerState(false, false, false);
         });
       }
 
@@ -888,63 +970,70 @@
         this.gamepadBannerTimer -= dt;
       }
 
-      const DEADZONE = 0.20;
-      const axisX = (gp.axes && gp.axes.length > 0) ? gp.axes[0] : 0;
-      const axisY = (gp.axes && gp.axes.length > 1) ? gp.axes[1] : 0;
-      const axisTriggerL = (gp.axes && gp.axes.length > 2) ? gp.axes[2] : 0;
-      const axisTriggerR = (gp.axes && gp.axes.length > 5) ? gp.axes[5] : 0;
+      const DEADZONE = 0.16;
+
+      // Leitura ampla de eixos (Stick analógico principal e alternativo no Android)
+      let rawAxisX = 0;
+      if (gp.axes && gp.axes.length > 0) rawAxisX = gp.axes[0];
+      if (Math.abs(rawAxisX) < 0.05 && gp.axes && gp.axes.length > 2 && Math.abs(gp.axes[2]) > 0.05) {
+        rawAxisX = gp.axes[2];
+      }
+
+      let rawAxisY = 0;
+      if (gp.axes && gp.axes.length > 1) rawAxisY = gp.axes[1];
+      if (Math.abs(rawAxisY) < 0.05 && gp.axes && gp.axes.length > 3 && Math.abs(gp.axes[3]) > 0.05) {
+        rawAxisY = gp.axes[3];
+      }
+
+      // Detecção de D-Pad por eixos (Hat Switch / Android DPAD axes 4, 5, 6, 7)
+      const hatX = (gp.axes && gp.axes.length > 4) ? gp.axes[4] : ((gp.axes && gp.axes.length > 6) ? gp.axes[6] : 0);
+      const hatY = (gp.axes && gp.axes.length > 5) ? gp.axes[5] : ((gp.axes && gp.axes.length > 7) ? gp.axes[7] : 0);
 
       // Direção analógica de alta precisão pelo stick analógico esquerdo
-      if (Math.abs(axisX) > DEADZONE) {
-        const sign = axisX > 0 ? 1 : -1;
-        const mag = (Math.abs(axisX) - DEADZONE) / (1 - DEADZONE);
+      if (Math.abs(rawAxisX) > DEADZONE) {
+        const sign = rawAxisX > 0 ? 1 : -1;
+        const mag = (Math.abs(rawAxisX) - DEADZONE) / (1 - DEADZONE);
         this.analogSteer = sign * Math.min(1, Math.max(0, mag));
       } else {
         this.analogSteer = 0;
       }
 
-      const isBtnPressed = (btnIdx, threshold = 0.5) => {
+      const isBtnPressed = (btnIdx, threshold = 0.35) => {
         if (!gp.buttons || !gp.buttons[btnIdx]) return false;
         const b = gp.buttons[btnIdx];
         return typeof b === 'object' ? (b.pressed || b.value >= threshold) : b >= threshold;
       };
 
-      // Mapeamento padrão de Gamepad (Gamesir X5 / Xbox / DirectInput / XInput):
-      // 0: A (Acelera / Confirmar)
-      // 1: B (Freia / Voltar)
-      // 2: X (Nitro)
-      // 3: Y (Nitro / Extra)
-      // 4: LB
-      // 5: RB (Nitro)
-      // 6: LT (Gatilho Freio)
-      // 7: RT (Gatilho Acelerar)
-      // 8: Select / Back / View (Voltar)
-      // 9: Start / Menu (Pausa / Confirmar)
-      // 12: D-pad Cima
-      // 13: D-pad Baixo
-      // 14: D-pad Esquerda
-      // 15: D-pad Direita
+      // D-Pad por botões ou eixos (cobre 100% dos controles Android e GameSir)
+      const gpUp = isBtnPressed(12) || (rawAxisY < -0.42) || (hatY < -0.42);
+      const gpDown = isBtnPressed(13) || (rawAxisY > 0.42) || (hatY > 0.42);
+      const gpLeft = isBtnPressed(14) || (rawAxisX < -0.35) || (hatX < -0.42);
+      const gpRight = isBtnPressed(15) || (rawAxisX > 0.35) || (hatX > 0.42);
 
-      const gpUp = isBtnPressed(12) || (axisY < -0.45);
-      const gpDown = isBtnPressed(13) || (axisY > 0.45);
-      const gpLeft = isBtnPressed(14) || (axisX < -0.38);
-      const gpRight = isBtnPressed(15) || (axisX > 0.38);
-
+      // Botões A / B / X / Y
       const btnA = isBtnPressed(0);
       const btnB = isBtnPressed(1);
       const btnX = isBtnPressed(2);
       const btnY = isBtnPressed(3);
       const btnLB = isBtnPressed(4);
       const btnRB = isBtnPressed(5);
-      const btnLT = isBtnPressed(6, 0.22) || (axisTriggerL > 0.22);
-      const btnRT = isBtnPressed(7, 0.22) || (axisTriggerR > 0.22);
+
+      // Gatilhos analógicos LT (freio) e RT (aceleração)
+      let axisTriggerL = 0;
+      let axisTriggerR = 0;
+      if (gp.axes) {
+        if (gp.axes.length > 2 && gp.axes[2] > 0.15 && gp.axes.length > 5) axisTriggerL = gp.axes[2];
+        if (gp.axes.length > 5 && gp.axes[5] > 0.15) axisTriggerR = gp.axes[5];
+      }
+      const btnLT = isBtnPressed(6, 0.20) || (axisTriggerL > 0.20);
+      const btnRT = isBtnPressed(7, 0.20) || (axisTriggerR > 0.20);
       const btnSelect = isBtnPressed(8);
       const btnStart = isBtnPressed(9);
 
       this.gpActiveGas = btnA || btnRT || (gpUp && this.analogSteer === 0);
       this.gpActiveBrake = btnB || btnLT || (gpDown && this.analogSteer === 0);
-      this.gpActiveLeft = gpLeft;
-      this.gpActiveRight = gpRight;
+      this.gpActiveLeft = gpLeft || (this.analogSteer < -0.25);
+      this.gpActiveRight = gpRight || (this.analogSteer > 0.25);
       this.gpActiveNitro = btnX || btnY || btnRB;
 
       const checkPulse = (key, isDown) => {

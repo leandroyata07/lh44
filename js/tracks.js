@@ -4,15 +4,16 @@
  */
 
 const ENV_CONDITIONS = [
-  { id: 'DIA',      label: 'DIA',      icon: '🌤' },
-  { id: 'TARDE',    label: 'TARDE',    icon: '🌇' },
-  { id: 'NOITE',    label: 'NOITE',    icon: '🌙' },
-  { id: 'CHUVA',    label: 'CHUVA',    icon: '🌧' },
-  { id: 'SOL',      label: 'SOL',      icon: '☀' },
-  { id: 'NEVE',     label: 'NEVE',     icon: '❄' },
-  { id: 'DINAMICO', label: 'DINÂMICO', icon: '🔄' }
+  { id: 'DIA',         label: 'DIA',         icon: '🌤' },
+  { id: 'TARDE',       label: 'TARDE',       icon: '🌇' },
+  { id: 'NOITE',       label: 'NOITE',       icon: '🌙' },
+  { id: 'DINAMICO',    label: 'DINÂMICO',    icon: '🔄' },
+  { id: 'CHUVA',       label: 'CHUVA DIA',   icon: '🌧' },
+  { id: 'CHUVA_NOITE', label: 'CHUVA NOITE', icon: '⛈' },
+  { id: 'NEVE',        label: 'NEVE DIA',    icon: '❄' },
+  { id: 'NEVE_NOITE',  label: 'NEVE NOITE',  icon: '🌨' }
 ];
-const DYN_ORDER = ['DIA', 'TARDE', 'NOITE', 'CHUVA', 'NEVE', 'SOL'];
+const DYN_ORDER = ['DIA', 'TARDE', 'NOITE', 'CHUVA', 'CHUVA_NOITE', 'NEVE', 'NEVE_NOITE'];
 const DYN_HOLD = 24;   // segundos estáveis em cada condição
 const DYN_BLEND = 9;   // segundos de transição suave
 
@@ -25,16 +26,16 @@ const ENV_SCALARS = ['night', 'rain', 'snow', 'sun', 'dusk', 'cover', 'sunY', 's
 
 const ENV_PRESETS = {
   DIA: {
-    sky: ['#124DA6', '#3782E0', '#8CC8FF'], mtn: ['#1A5930', '#257B40'], cloud: ['#FFFFFF', '#BCDAF6'],
-    sunC: '#FFF9C4', sunG: '#FFEB6E',
+    sky: ['#1557B0', '#3B8BEB', '#92CEFF'], mtn: ['#1B5E20', '#2E7D32'], cloud: ['#FFFFFF', '#D0E5FF'],
+    sunC: '#FFFDE7', sunG: '#FFEE58',
     ground: { mul: [1, 1, 1], add: [0, 0, 0], sat: 1 },
-    s: { night: 0, rain: 0, snow: 0, sun: 1, dusk: 0, cover: 0.75, sunY: 33, sunSize: 1, glare: 0 }
+    s: { night: 0, rain: 0, snow: 0, sun: 1, dusk: 0, cover: 0.75, sunY: 30, sunSize: 1.15, glare: 0 }
   },
   TARDE: {
     sky: ['#2E103D', '#8E2E52', '#F28B30'], mtn: ['#451B26', '#682836'], cloud: ['#732648', '#FFA260'],
     sunC: '#FFE082', sunG: '#FF7043',
     ground: { mul: [1, 0.74, 0.58], add: [16, 4, -6], sat: 1.05 },
-    s: { night: 0, rain: 0, snow: 0, sun: 1, dusk: 1, cover: 0.7, sunY: 50, sunSize: 1.15, glare: 0.25 }
+    s: { night: 0, rain: 0, snow: 0, sun: 1, dusk: 1, cover: 0.7, sunY: 48, sunSize: 1.25, glare: 0.25 }
   },
   NOITE: {
     sky: ['#040610', '#0A1126', '#162447'], mtn: ['#090D1A', '#11182D'], cloud: ['#1B2742', '#0E1630'],
@@ -43,22 +44,28 @@ const ENV_PRESETS = {
     s: { night: 1, rain: 0, snow: 0, sun: 0, dusk: 0, cover: 0.3, sunY: 33, sunSize: 1, glare: 0 }
   },
   CHUVA: {
-    sky: ['#3B4552', '#586471', '#8795A2'], mtn: ['#2D3B3C', '#3B4B49'], cloud: ['#59636E', '#343D48'],
+    sky: ['#38424E', '#505C6A', '#7A8896'], mtn: ['#283533', '#354440'], cloud: ['#4D5763', '#2E3640'],
     sunC: '#FFFFFF', sunG: '#FFFFFF',
-    ground: { mul: [0.62, 0.68, 0.70], add: [0, 0, 0], sat: 0.55 },
+    ground: { mul: [0.60, 0.65, 0.68], add: [0, 0, 0], sat: 0.55 },
     s: { night: 0, rain: 1, snow: 0, sun: 0, dusk: 0, cover: 1, sunY: 33, sunSize: 1, glare: 0 }
   },
-  SOL: {
-    sky: ['#0B5BD0', '#2F98FF', '#C2E8FF'], mtn: ['#2B7C39', '#41A551'], cloud: ['#FFFFFF', '#D8EDFF'],
-    sunC: '#FFFFFF', sunG: '#FFF3A8',
-    ground: { mul: [1.1, 1.08, 0.98], add: [12, 10, 0], sat: 1.2 },
-    s: { night: 0, rain: 0, snow: 0, sun: 1, dusk: 0, cover: 0.35, sunY: 30, sunSize: 1.45, glare: 1 }
+  CHUVA_NOITE: {
+    sky: ['#03050C', '#070C1B', '#0E1626'], mtn: ['#060912', '#0C111E'], cloud: ['#101726', '#080C14'],
+    sunC: '#FFFFFF', sunG: '#FFFFFF',
+    ground: { mul: [0.22, 0.25, 0.40], add: [0, 0, 6], sat: 0.8 },
+    s: { night: 1, rain: 1, snow: 0, sun: 0, dusk: 0, cover: 0.9, sunY: 33, sunSize: 1, glare: 0 }
   },
   NEVE: {
-    sky: ['#8CA3BC', '#B4C6D8', '#E4EDF6'], mtn: ['#CFDCE8', '#EEF4FA'], cloud: ['#F2F6FA', '#C9D6E3'],
+    sky: ['#869EB6', '#B0C2D4', '#E0EAF4'], mtn: ['#C8D6E4', '#E8F0F8'], cloud: ['#F2F6FA', '#C9D6E3'],
     sunC: '#FFFFFF', sunG: '#E6F0FA',
     ground: { mul: [0.96, 0.98, 1.0], add: [6, 8, 12], sat: 0.55, grass: ['#EEF4FA', '#E0EAF3'] },
-    s: { night: 0, rain: 0, snow: 1, sun: 0.12, dusk: 0, cover: 0.95, sunY: 40, sunSize: 0.9, glare: 0 }
+    s: { night: 0, rain: 0, snow: 1, sun: 0.12, dusk: 0, cover: 0.95, sunY: 38, sunSize: 0.9, glare: 0 }
+  },
+  NEVE_NOITE: {
+    sky: ['#03050E', '#070E20', '#121D38'], mtn: ['#091020', '#141E38'], cloud: ['#16223C', '#0A1224'],
+    sunC: '#FFFFFF', sunG: '#FFFFFF',
+    ground: { mul: [0.30, 0.36, 0.52], add: [8, 12, 18], sat: 0.75, grass: ['#6B7C96', '#4A5870'] },
+    s: { night: 1, rain: 0, snow: 1, sun: 0, dusk: 0, cover: 0.6, sunY: 33, sunSize: 1, glare: 0 }
   }
 };
 
@@ -169,26 +176,26 @@ const TRACK_DEFINITIONS = [
   {
     id: 'serra',
     name: 'SERRA BRASILEIRA',
-    theme: 'SERRA',
-    skyTop: '#2E103D',
-    skyMid: '#8E2E52',
-    skyBottom: '#F28B30',
-    mountainColor: '#451B26',
-    mountainFront: '#682836',
+    theme: 'DIA',
+    skyTop: '#1557B0',
+    skyMid: '#3B8BEB',
+    skyBottom: '#92CEFF',
+    mountainColor: '#1B4332',
+    mountainFront: '#2D6A4F',
     colors: {
-      roadDark:   '#433936',
-      roadLight:  '#4D423E',
-      grassDark:  '#6E3A1E',
-      grassLight: '#804524',
-      rumbleDark: '#1E2024',
-      rumbleLight:'#F59E0B',
+      roadDark:   '#3C4046',
+      roadLight:  '#464B52',
+      grassDark:  '#1E6B2A',
+      grassLight: '#268234',
+      rumbleDark: '#F8FAFC',
+      rumbleLight:'#D62828',
       lane:       '#FBBF24'
     },
     sections: [
       { length: 140, curve: 0,    hill: 0,     scenery: 'tree' },                          // Reta do Vale
       { length: 90,  curve: -2.4, hill: 900,   scenery: 'sign_left', guardrail: 'both' },  // Subida dos Pinhais (Esq)
       { length: 85,  curve: 1.6,  hill: 1200,  scenery: 'sign_right', guardrail: 'both' }, // Mirante das Pedras (Dir)
-      { length: 110, curve: -1.8, hill: 0,     tunnel: 'stone' },                          // TÚNEL DA SERRA (Esculpido na Rocha)
+      { length: 110, curve: -1.8, hill: 0,     scenery: 'tree', guardrail: 'both' },       // Curva dos Pinhais da Serra (Esq)
       { length: 130, curve: 0,    hill: -300,  bridge: true },                             // VIADUTO DA SERRA (Ponte Suspensa nas Alturas)
       { length: 95,  curve: -2.5, hill: -800,  scenery: 'sign_left', guardrail: 'both' },  // Descida da Encosta (Esq)
       { length: 80,  curve: 1.8,  hill: -1100, scenery: 'sign_right', guardrail: 'both' }, // Curva do Riacho (Dir)
@@ -198,28 +205,28 @@ const TRACK_DEFINITIONS = [
   },
   {
     id: 'noite',
-    name: 'NOITE URBANA',
-    theme: 'NOITE',
-    skyTop: '#040610',
-    skyMid: '#0A1126',
-    skyBottom: '#162447',
-    mountainColor: '#090D1A',
-    mountainFront: '#11182D',
+    name: 'CIDADE METRÓPOLE',
+    theme: 'DIA',
+    skyTop: '#1557B0',
+    skyMid: '#3B8BEB',
+    skyBottom: '#92CEFF',
+    mountainColor: '#1A2536',
+    mountainFront: '#2C3E50',
     colors: {
-      roadDark:   '#20242C',
-      roadLight:  '#272C35',
-      grassDark:  '#0E131C',
-      grassLight: '#131A26',
-      rumbleDark: '#5B2C6F',
-      rumbleLight:'#00B4D8',
-      lane:       '#E2E8F0'
+      roadDark:   '#343842',
+      roadLight:  '#3E434E',
+      grassDark:  '#1C6630',
+      grassLight: '#24783A',
+      rumbleDark: '#F8FAFC',
+      rumbleLight:'#D62828',
+      lane:       '#FFFFFF'
     },
     sections: [
       { length: 150, curve: 0,    hill: 0,     scenery: 'streetlamp', overheadBridge: true }, // Avenida Principal
       { length: 80,  curve: -2.6, hill: 400,   scenery: 'streetlamp', guardrail: 'both' },    // Curva 90º do Obelisco (Esq)
       { length: 130, curve: 0,    hill: 800,   bridge: true, scenery: 'streetlamp' },         // VIADUTO ELEVADO URBANO (Ponte Noturna)
       { length: 85,  curve: -2.8, hill: 1200,  scenery: 'billboard', guardrail: 'both' },     // Curva da Catedral (Esq)
-      { length: 120, curve: 1.2,  hill: -300,  tunnel: 'metro' },                             // TÚNEL METROPOLITANO DE NEON
+      { length: 120, curve: 1.2,  hill: -300,  scenery: 'streetlamp', guardrail: 'both' },    // Avenida Expressa Metrópole (Dir)
       { length: 90,  curve: -2.5, hill: -800,  scenery: 'building', guardrail: 'both' },      // Avenida Marginal (Esq)
       { length: 80,  curve: -2.4, hill: -400,  scenery: 'streetlamp', guardrail: 'both' },    // Curva do Vale (Esq)
       { length: 140, curve: 0,    hill: 0,     scenery: 'billboard' }                         // Reta de Chegada
