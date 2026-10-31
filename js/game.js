@@ -1232,7 +1232,7 @@
         }
 
       // Detecção de Vácuo (Slipstream) progressivo e gradual:
-      // Inicia suavemente a até 1500 unidades de distância (visível na reta) e atinge o ápice de 100%
+      // Inicia suavemente a até 2400 unidades de distância (visível na reta longa) e atinge o ápice de 100%
       // a partir de dois carros à frente (<= 350 unidades), inclusive colado no para-choque!
       p.inSlipstream = false;
       p.slipstreamIntensity = 0;
@@ -1244,15 +1244,15 @@
           const other = this.cars[i];
           if (other.isPlayer) continue;
           const aheadDz = this.shortestDeltaZ(other.z, p.z);
-          if (aheadDz >= -15 && aheadDz <= 1500) {
+          if (aheadDz >= -30 && aheadDz <= 2400) {
             let distW = 0;
             if (aheadDz <= 350) {
               distW = 1.0;
             } else {
-              const progress = (aheadDz - 350) / (1500 - 350);
-              distW = Math.pow(1.0 - progress, 1.15);
+              const progress = (aheadDz - 350) / (2400 - 350);
+              distW = Math.pow(1.0 - progress, 0.82);
             }
-            const maxLat = 0.55 + 0.35 * (Math.max(0, aheadDz) / 1500);
+            const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2400);
             const latDiff = Math.abs(other.x - p.x);
             if (latDiff < maxLat) {
               const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1264,7 +1264,7 @@
             }
           }
         }
-        if (bestIntensity > 0.02) {
+        if (bestIntensity > 0.015) {
           p.inSlipstream = true;
           p.slipstreamIntensity = bestIntensity;
           p.slipstreamTarget = bestTarget;
@@ -1272,16 +1272,17 @@
       }
 
       // Ganho progressivo de velocidade e aceleração conforme a proximidade (Fórmula 1):
-      // Permite que carros mais lentos (Fusca, Brasília, Uno, Corsa, etc.) utilizem o vácuo
-      // de carros mais velozes para emparelhar, ganhar giro e executar a ultrapassagem!
+      // Mesmo com o carro na velocidade máxima nominal (ex: Fusca a 205 km/h), o vácuo reduz
+      // o arrasto do ar e gera sucção imediata que eleva gradualmente a velocidade máxima
+      // e acelera o veículo para encostar no líder e preparar o slingshot!
       const slipInt = p.slipstreamIntensity || 0;
-      const slipMaxMul = 1.0 + (0.16 * slipInt);
-      const slipAccMul = 1.0 + (0.55 * slipInt);
-      const targetDraftBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
-        ? (p.slipstreamTarget.speed - p.speed) * 0.24 * slipInt
+      const baseMax = p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed;
+      const speedGapBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
+        ? (p.slipstreamTarget.speed - p.speed) * 0.85 * slipInt
         : 0;
-      const effectiveMaxSpeed = ((p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed) * slipMaxMul) + targetDraftBonus;
-      const effectiveAccel = (p.isNitro ? (model.acceleration * 1.85) : model.acceleration) * slipAccMul;
+      const vacuumSpeedBoost = ((baseMax * 0.22) + 24) * slipInt;
+      const effectiveMaxSpeed = baseMax + vacuumSpeedBoost + speedGapBonus;
+      const effectiveAccel = (p.isNitro ? (model.acceleration * 1.85) : model.acceleration) * (1.0 + 1.25 * slipInt);
       const speedRatio = Math.min(1.2, p.speed / Math.max(1, effectiveMaxSpeed));
 
       const isAccelerating = (this.input.up || p.isNitro) && (this.state === 'RACING');
@@ -1304,7 +1305,8 @@
         p.speed = Math.max(0, p.speed - trailBrakeRate);
       } else if (isAccelerating) {
         const rate = (132 + effectiveAccel * 135) * torqueFactor * dt;
-        p.speed = Math.min(p.speed + rate, dynamicMaxSpeed);
+        const suctionPull = (55 + model.acceleration * 70) * slipInt * dt;
+        p.speed = Math.min(p.speed + rate + suctionPull, dynamicMaxSpeed);
       } else if (p.isBraking) {
         const brakeRate = (255 + model.braking * 175) * dt;
         p.speed = Math.max(p.speed - brakeRate, 0);
@@ -1504,9 +1506,9 @@
             if (i === k) continue;
             const other = this.cars[k];
             const aheadDz = this.shortestDeltaZ(other.z, bot.z);
-            if (aheadDz >= -15 && aheadDz <= 1500) {
-              const distW = (aheadDz <= 350) ? 1.0 : Math.pow(1.0 - ((aheadDz - 350) / (1500 - 350)), 1.15);
-              const maxLat = 0.55 + 0.35 * (Math.max(0, aheadDz) / 1500);
+            if (aheadDz >= -30 && aheadDz <= 2400) {
+              const distW = (aheadDz <= 350) ? 1.0 : Math.pow(1.0 - ((aheadDz - 350) / (2400 - 350)), 0.82);
+              const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2400);
               const latDiff = Math.abs(other.x - bot.x);
               if (latDiff < maxLat) {
                 const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1519,17 +1521,20 @@
               }
             }
           }
-          if (bestIntensity > 0.02) {
+          if (bestIntensity > 0.015) {
             bot.inSlipstream = true;
             bot.slipstreamIntensity = bestIntensity;
           }
         }
 
-        // Aplica bônus de vácuo ao bot (velocidade máxima e aceleração)
-        let targetSpeed = baseTargetSpeed * (1.0 + (0.15 * (bot.slipstreamIntensity || 0)));
-        if (leadCar && leadCar.speed > bot.speed) {
-          targetSpeed += (leadCar.speed - bot.speed) * 0.22 * (bot.slipstreamIntensity || 0);
-        }
+        // Aplica bônus progressivo de vácuo ao bot (velocidade máxima e aceleração)
+        const botSlipInt = bot.slipstreamIntensity || 0;
+        const botBaseMax = bot.isNitro ? (bot.model.maxSpeed * 1.30) : baseTargetSpeed;
+        const botCatchBonus = (leadCar && leadCar.speed > bot.speed)
+          ? (leadCar.speed - bot.speed) * 0.85 * botSlipInt
+          : 0;
+        const botVacuumTopBoost = ((botBaseMax * 0.22) + 24) * botSlipInt;
+        let targetSpeed = botBaseMax + botVacuumTopBoost + botCatchBonus;
 
         // Bônus do Nitro ativo do Bot
         if (bot.isNitro) {
@@ -1603,9 +1608,10 @@
         } else {
           bot.isBraking = false;
           if (bot.speed < targetSpeed) {
-            const accelMul = bot.isNitro ? 2.0 : (1.0 + (0.45 * (bot.slipstreamIntensity || 0)));
+            const accelMul = bot.isNitro ? 2.0 : (1.0 + (1.25 * (bot.slipstreamIntensity || 0)));
             const launchRate = (120 + bot.model.acceleration * 125) * accelMul * dt;
-            bot.speed = Math.min(bot.speed + launchRate, targetSpeed);
+            const botSuctionPull = (55 + bot.model.acceleration * 70) * (bot.slipstreamIntensity || 0) * dt;
+            bot.speed = Math.min(bot.speed + launchRate + botSuctionPull, targetSpeed);
           } else if (bot.bumpBoostTimer <= 0 && !bot.isNitro) {
             bot.speed = Math.max(bot.speed - 65 * dt, targetSpeed);
           }
@@ -4397,13 +4403,12 @@
       }
 
       // Indicador aerodinâmico de Vácuo (Slipstream) estilo F1
-      // Indicador aerodinâmico de Vácuo (Slipstream) estilo F1
       if (this.player.inSlipstream) {
         const intensity = Math.min(1.0, this.player.slipstreamIntensity || 0.5);
         const vacY = touchHud ? (spdY + spdH + 2) : (spdY - 14);
-        const barW = 54;
-        const barH = 11;
-        ctx.fillStyle = 'rgba(8, 16, 26, 0.88)';
+        const barW = 60;
+        const barH = 12;
+        ctx.fillStyle = 'rgba(8, 16, 26, 0.90)';
         ctx.fillRect(spdX, vacY, barW, barH);
         ctx.strokeStyle = '#00E5FF';
         ctx.lineWidth = 1;
@@ -4417,10 +4422,10 @@
         ctx.fillRect(spdX + 2, vacY + 2, fillW, barH - 4);
 
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 6.2px monospace';
+        ctx.font = 'bold 6.4px monospace';
         ctx.textAlign = 'center';
-        const pct = Math.round(intensity * 100);
-        ctx.fillText(`▲ VÁCUO ${pct}%`, spdX + barW / 2, vacY + 8);
+        const pct = Math.max(5, Math.round(intensity * 100));
+        ctx.fillText(`▲ VÁCUO ${pct}%`, spdX + barW / 2, vacY + 8.5);
       }
       // Minimapa com traçado duplo e linha de chegada
       const mapBoxW = 58;
