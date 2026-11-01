@@ -35,11 +35,15 @@
       this.lastDigit = null;
       this.lastCanvasClick = null;
 
-      // Suporte nativo a Gamepads / Joysticks (Gamesir X5 Lite, Xbox, etc.)
+      // Suporte nativo a Gamepads / Joysticks (Xbox XInput/DInput, Gamesir, etc.)
       this.gamepadConnected = false;
       this.gamepadName = '';
       this.gamepadBannerTimer = 0;
       this.analogSteer = 0;
+      this.throttlePressure = 0;
+      this.brakePressure = 0;
+      this.gpThrottlePressure = 0;
+      this.gpBrakePressure = 0;
       this.gpActiveGas = false;
       this.gpActiveBrake = false;
       this.gpActiveLeft = false;
@@ -165,6 +169,24 @@
       if (allowAutoFs) this.tryAutoEnterMobileFullscreen();
     }
 
+    toggleSettings() {
+      this.notifyGesture(false);
+      const panel = document.getElementById('opacity-panel');
+      const gearBtn = document.getElementById('gear-btn');
+      if (panel) {
+        const isOpen = panel.classList.contains('open');
+        if (isOpen) {
+          panel.classList.remove('open');
+          if (gearBtn) gearBtn.classList.remove('active');
+        } else {
+          panel.classList.add('open');
+          if (gearBtn) gearBtn.classList.add('active');
+          // Abrir configurações pausa o jogo
+          this.justPressedEsc = true;
+        }
+      }
+    }
+
     syncCombinedInputs() {
       const prevUp = this.up;
       const prevDown = this.down;
@@ -172,14 +194,28 @@
       const prevRight = this.right;
       const prevNitro = this.nitro;
 
-      this.up = this.keys.up || this.touch.dpadUp || this.touch.btn3Gas || !!this.gpActiveGas;
-      this.down = this.keys.down || this.touch.dpadDown || this.touch.btn2Brake || !!this.gpActiveBrake;
+      // Resposta gradual analógica de acelerador (R2) e freio (L2)
+      let gasPressure = this.gpThrottlePressure || 0;
+      if (this.keys.up || this.touch.btn3Gas) {
+        gasPressure = Math.max(gasPressure, 1.0);
+      }
+      this.throttlePressure = gasPressure;
+      this.up = gasPressure > 0.08;
+
+      let brkPressure = this.gpBrakePressure || 0;
+      if (this.keys.down || this.touch.btn2Brake) {
+        brkPressure = Math.max(brkPressure, 1.0);
+      }
+      this.brakePressure = brkPressure;
+      this.down = brkPressure > 0.08;
+
       this.left = this.keys.left || this.touch.dpadLeft || !!this.gpActiveLeft;
       this.right = this.keys.right || this.touch.dpadRight || !!this.gpActiveRight;
       this.nitro = this.keys.nitro || this.touch.btn1Nitro || !!this.gpActiveNitro;
 
-      if (this.up && !prevUp) this.justPressedUp = true;
-      if (this.down && !prevDown) this.justPressedDown = true;
+      // Navegação por teclado / touch
+      if ((this.keys.up || this.touch.dpadUp) && !prevUp) this.justPressedUp = true;
+      if ((this.keys.down || this.touch.dpadDown) && !prevDown) this.justPressedDown = true;
       if (this.left && !prevLeft) this.justPressedLeft = true;
       if (this.right && !prevRight) this.justPressedRight = true;
       if (this.nitro && !prevNitro) this.justPressedNitro = true;
@@ -662,19 +698,7 @@
       });
 
       bindTap(gearBtn, () => {
-        this.notifyGesture(false);
-        if (panel) {
-          const isOpen = panel.classList.contains('open');
-          if (isOpen) {
-            panel.classList.remove('open');
-            if (gearBtn) gearBtn.classList.remove('active');
-          } else {
-            panel.classList.add('open');
-            if (gearBtn) gearBtn.classList.add('active');
-            // Clicar na engrenagem pausa o jogo (envia pulso Esc)
-            this.justPressedEsc = true;
-          }
-        }
+        this.toggleSettings();
       });
 
       bindTap(closeBtn, () => {
@@ -968,6 +992,8 @@
       if (!gp) {
         this.gamepadConnected = false;
         this.analogSteer = 0;
+        this.gpThrottlePressure = 0;
+        this.gpBrakePressure = 0;
         this.gpActiveGas = false;
         this.gpActiveBrake = false;
         this.gpActiveLeft = false;
@@ -978,7 +1004,7 @@
 
       if (!this.gamepadConnected) {
         this.gamepadConnected = true;
-        this.gamepadName = gp.id || 'GAMESIR / CONTROLE NATIVO';
+        this.gamepadName = gp.id || 'CONTROLE XBOX / NATIVO';
         this.gamepadBannerTimer = 3.8;
         this.notifyGesture(false);
       }
@@ -988,27 +1014,16 @@
 
       const DEADZONE = 0.16;
 
-      // Leitura ampla de eixos (Stick analógico principal e alternativo no Android)
-      let rawAxisX = 0;
-      if (gp.axes && gp.axes.length > 0) rawAxisX = gp.axes[0];
-      if (Math.abs(rawAxisX) < 0.05 && gp.axes && gp.axes.length > 2 && Math.abs(gp.axes[2]) > 0.05) {
-        rawAxisX = gp.axes[2];
-      }
+      // 1. Analógico Esquerdo (Left Stick)
+      // Eixo 0: Direção do carro (analogSteer)
+      // Eixo 1: Navegação vertical em menus (NÃO acelera nem freia na corrida!)
+      const leftStickX = (gp.axes && gp.axes.length > 0) ? gp.axes[0] : 0;
+      const leftStickY = (gp.axes && gp.axes.length > 1) ? gp.axes[1] : 0;
 
-      let rawAxisY = 0;
-      if (gp.axes && gp.axes.length > 1) rawAxisY = gp.axes[1];
-      if (Math.abs(rawAxisY) < 0.05 && gp.axes && gp.axes.length > 3 && Math.abs(gp.axes[3]) > 0.05) {
-        rawAxisY = gp.axes[3];
-      }
-
-      // Detecção de D-Pad por eixos (Hat Switch / Android DPAD axes 4, 5, 6, 7)
-      const hatX = (gp.axes && gp.axes.length > 4) ? gp.axes[4] : ((gp.axes && gp.axes.length > 6) ? gp.axes[6] : 0);
-      const hatY = (gp.axes && gp.axes.length > 5) ? gp.axes[5] : ((gp.axes && gp.axes.length > 7) ? gp.axes[7] : 0);
-
-      // Direção analógica de alta precisão pelo stick analógico esquerdo
-      if (Math.abs(rawAxisX) > DEADZONE) {
-        const sign = rawAxisX > 0 ? 1 : -1;
-        const mag = (Math.abs(rawAxisX) - DEADZONE) / (1 - DEADZONE);
+      // Esterçamento Analógico do stick esquerdo
+      if (Math.abs(leftStickX) > DEADZONE) {
+        const sign = leftStickX > 0 ? 1 : -1;
+        const mag = (Math.abs(leftStickX) - DEADZONE) / (1 - DEADZONE);
         this.analogSteer = sign * Math.min(1, Math.max(0, mag));
       } else {
         this.analogSteer = 0;
@@ -1020,37 +1035,71 @@
         return typeof b === 'object' ? (b.pressed || b.value >= threshold) : b >= threshold;
       };
 
-      // D-Pad por botões ou eixos (cobre 100% dos controles Android e GameSir)
-      const gpUp = isBtnPressed(12) || (rawAxisY < -0.42) || (hatY < -0.42);
-      const gpDown = isBtnPressed(13) || (rawAxisY > 0.42) || (hatY > 0.42);
-      const gpLeft = isBtnPressed(14) || (rawAxisX < -0.35) || (hatX < -0.42);
-      const gpRight = isBtnPressed(15) || (rawAxisX > 0.35) || (hatX > 0.42);
+      // Leitura de gatilhos analógicos com amplitude contínua (0.0 a 1.0)
+      const getTriggerVal = (btnIdx, axisIdx) => {
+        let v = 0;
+        if (gp.buttons && gp.buttons[btnIdx]) {
+          const b = gp.buttons[btnIdx];
+          if (typeof b === 'object' && b !== null) {
+            v = (typeof b.value === 'number') ? b.value : (b.pressed ? 1.0 : 0.0);
+          } else if (typeof b === 'number') {
+            v = b;
+          }
+        }
+        // Fallback para eixos analógicos em drivers DirectInput / Linux
+        if (v < 0.05 && gp.mapping !== 'standard' && gp.axes && typeof axisIdx === 'number' && gp.axes.length > axisIdx) {
+          const ax = gp.axes[axisIdx];
+          if (typeof ax === 'number' && ax > 0.05) {
+            v = ax;
+          }
+        }
+        return Math.max(0, Math.min(1, v));
+      };
 
-      // Botões A / B / X / Y
+      // R2 (Gatilho Direito / RT / btn 7) = ACELERADOR gradual conforme a pressão
+      const r2Pressure = getTriggerVal(7, 5);
+      this.gpThrottlePressure = r2Pressure;
+      this.gpActiveGas = r2Pressure > 0.08;
+
+      // L2 (Gatilho Esquerdo / LT / btn 6) = FREIO gradual conforme a pressão
+      const l2Pressure = getTriggerVal(6, 2);
+      this.gpBrakePressure = l2Pressure;
+      this.gpActiveBrake = l2Pressure > 0.08;
+
+      // D-Pad Digital (Botões 12, 13, 14, 15 ou Hat Switches)
+      const hatX = (gp.axes && gp.axes.length > 4) ? gp.axes[4] : ((gp.axes && gp.axes.length > 6) ? gp.axes[6] : 0);
+      const hatY = (gp.axes && gp.axes.length > 5) ? gp.axes[5] : ((gp.axes && gp.axes.length > 7) ? gp.axes[7] : 0);
+
+      const dpadUp = isBtnPressed(12) || (hatY < -0.42);
+      const dpadDown = isBtnPressed(13) || (hatY > 0.42);
+      const dpadLeft = isBtnPressed(14) || (hatX < -0.42);
+      const dpadRight = isBtnPressed(15) || (hatX > 0.42);
+
+      // Controle para os lados do carro (analógico esquerdo e digital D-Pad)
+      this.gpActiveLeft = dpadLeft || (this.analogSteer < -0.25);
+      this.gpActiveRight = dpadRight || (this.analogSteer > 0.25);
+
+      // Botões A / B / X / Y / LB / RB / Select / Start
       const btnA = isBtnPressed(0);
       const btnB = isBtnPressed(1);
       const btnX = isBtnPressed(2);
       const btnY = isBtnPressed(3);
       const btnLB = isBtnPressed(4);
       const btnRB = isBtnPressed(5);
-
-      // Gatilhos analógicos LT (freio) e RT (aceleração)
-      let axisTriggerL = 0;
-      let axisTriggerR = 0;
-      if (gp.axes) {
-        if (gp.axes.length > 2 && gp.axes[2] > 0.15 && gp.axes.length > 5) axisTriggerL = gp.axes[2];
-        if (gp.axes.length > 5 && gp.axes[5] > 0.15) axisTriggerR = gp.axes[5];
-      }
-      const btnLT = isBtnPressed(6, 0.20) || (axisTriggerL > 0.20);
-      const btnRT = isBtnPressed(7, 0.20) || (axisTriggerR > 0.20);
       const btnSelect = isBtnPressed(8);
       const btnStart = isBtnPressed(9);
 
-      this.gpActiveGas = btnA || btnRT || (gpUp && this.analogSteer === 0);
-      this.gpActiveBrake = btnB || btnLT || (gpDown && this.analogSteer === 0);
-      this.gpActiveLeft = gpLeft || (this.analogSteer < -0.25);
-      this.gpActiveRight = gpRight || (this.analogSteer > 0.25);
-      this.gpActiveNitro = btnX || btnY || btnRB;
+      // Nitro é o botão A (com suporte também a X, Y e RB)
+      this.gpActiveNitro = btnA || btnX || btnY || btnRB;
+
+      // 2. Analógico Direito (Right Stick) — SOMENTE para navegar nos menus/opções
+      const rightStickX = (gp.axes && gp.axes.length > 2) ? gp.axes[2] : 0;
+      const rightStickY = (gp.axes && gp.axes.length > 3) ? gp.axes[3] : 0;
+
+      const rsLeft = rightStickX < -0.42;
+      const rsRight = rightStickX > 0.42;
+      const rsUp = rightStickY < -0.42;
+      const rsDown = rightStickY > 0.42;
 
       const checkPulse = (key, isDown) => {
         const prev = !!this.prevGamepadButtons[key];
@@ -1058,20 +1107,48 @@
         return isDown && !prev;
       };
 
-      // Pulsos para navegação em menus
-      if (checkPulse('btnA', btnA) || checkPulse('btnStart', btnStart)) {
+      // Select = Configurações (abre o painel e pausa)
+      if (checkPulse('btnSelect', btnSelect)) {
+        this.toggleSettings();
+      }
+
+      // Start = Pausa (pausa e despausa a corrida / confirma menus)
+      if (checkPulse('btnStart', btnStart)) {
+        this.justPressedEsc = true;
         this.justPressedEnter = true;
       }
-      if (checkPulse('btnB', btnB) || checkPulse('btnSelect', btnSelect)) {
+
+      // Botão A = Nitro na corrida e Confirmação/Seleção nos Menus
+      if (checkPulse('btnA', btnA)) {
+        this.justPressedNitro = true;
+        this.justPressedEnter = true;
+      }
+      if (checkPulse('btnB', btnB)) {
         this.justPressedEsc = true;
       }
-      if (checkPulse('btnX', btnX) || checkPulse('btnRB', btnRB)) {
+      if (checkPulse('btnX', btnX) || checkPulse('btnRB', btnRB) || checkPulse('btnY', btnY)) {
         this.justPressedNitro = true;
       }
-      if (checkPulse('dpadUp', gpUp)) this.justPressedUp = true;
-      if (checkPulse('dpadDown', gpDown)) this.justPressedDown = true;
-      if (checkPulse('dpadLeft', gpLeft)) this.justPressedLeft = true;
-      if (checkPulse('dpadRight', gpRight)) this.justPressedRight = true;
+
+      // Navegação nos Menus:
+      // Analógico Esquerdo e Digital D-Pad (Cima / Baixo navegam menus)
+      const menuUpLeft = dpadUp || (leftStickY < -0.42);
+      const menuDownLeft = dpadDown || (leftStickY > 0.42);
+      const menuLeftStick = dpadLeft || (leftStickX < -0.42);
+      const menuRightStick = dpadRight || (leftStickX > 0.42);
+
+      if (checkPulse('menuUpLeft', menuUpLeft) || checkPulse('rsUp', rsUp)) {
+        this.justPressedUp = true;
+      }
+      if (checkPulse('menuDownLeft', menuDownLeft) || checkPulse('rsDown', rsDown)) {
+        this.justPressedDown = true;
+      }
+      if (checkPulse('menuLeftStick', menuLeftStick) || checkPulse('rsLeft', rsLeft)) {
+        this.justPressedLeft = true;
+      }
+      if (checkPulse('menuRightStick', menuRightStick) || checkPulse('rsRight', rsRight)) {
+        this.justPressedRight = true;
+      }
 
       this.syncCombinedInputs();
     }

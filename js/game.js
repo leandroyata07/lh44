@@ -1302,8 +1302,12 @@
       const effectiveAccel = model.acceleration * accelNitroMul * (1.0 + 1.25 * slipInt);
       const speedRatio = Math.min(1.2, p.speed / Math.max(1, effectiveMaxSpeed));
 
-      const isAccelerating = (this.input.up || p.isNitro) && (this.state === 'RACING');
-      p.isBraking = this.input.down && (this.state === 'RACING');
+      // Resposta analógica de pressão dos gatilhos L2 e R2 (ou 1.0 com teclado/touch)
+      const throttleInput = p.isNitro ? 1.0 : (this.input.throttlePressure !== undefined ? this.input.throttlePressure : (this.input.up ? 1.0 : 0.0));
+      const brakeInput = this.input.brakePressure !== undefined ? this.input.brakePressure : (this.input.down ? 1.0 : 0.0);
+
+      const isAccelerating = ((throttleInput > 0.05) || p.isNitro) && (this.state === 'RACING');
+      p.isBraking = (brakeInput > 0.05) && (this.state === 'RACING');
 
       // Curva de torque progressiva por marcha + efeito gravitacional de subida/descida
       const slope = (playerSeg.p2.world.y - playerSeg.p1.world.y) / SEGMENT_LENGTH;
@@ -1316,22 +1320,25 @@
 
       if (isAccelerating && p.isBraking) {
         // Trail Braking / Frenagem esportiva simultânea:
-        // Pressionar freio e acelerador ao mesmo tempo reduz suavemente a velocidade,
+        // Pressionar freio e acelerador ao mesmo tempo reduz suavemente a velocidade conforme a pressão do freio L2,
         // permitindo dosar a tangência ideal em curvas sem perder totalmente o giro do motor!
-        const trailBrakeRate = (125 + model.braking * 95) * dt;
+        const trailBrakeRate = (125 + model.braking * 95) * brakeInput * dt;
         p.speed = Math.max(0, p.speed - trailBrakeRate);
       } else if (isAccelerating) {
-        const rate = (132 + effectiveAccel * 135) * torqueFactor * dt;
+        const rate = (132 + effectiveAccel * 135) * torqueFactor * throttleInput * dt;
         const suctionPull = (55 + model.acceleration * 70) * slipInt * dt;
-        if (p.speed < dynamicMaxSpeed) {
-          p.speed = Math.min(p.speed + rate + suctionPull, dynamicMaxSpeed);
+        // Velocidade alvo correspondente à pressão no gatilho R2 (permite dosar velocidade de cruzeiro)
+        const targetPartialSpeed = p.isNitro ? dynamicMaxSpeed : dynamicMaxSpeed * (0.35 + 0.65 * throttleInput);
+        if (p.speed < targetPartialSpeed) {
+          p.speed = Math.min(p.speed + rate + suctionPull, targetPartialSpeed);
         } else {
-          // Desaceleração gradual e suave pós-nitro ao longo de 3 segundos (sem cortes abruptos)
-          const excessDecay = Math.max(18, (p.speed - dynamicMaxSpeed) * 0.90) * dt;
-          p.speed = Math.max(dynamicMaxSpeed, p.speed - excessDecay);
+          // Desaceleração gradual e suave (sem cortes abruptos)
+          const excessDecay = Math.max(18, (p.speed - targetPartialSpeed) * 0.90) * dt;
+          p.speed = Math.max(targetPartialSpeed, p.speed - excessDecay);
         }
       } else if (p.isBraking) {
-        const brakeRate = (255 + model.braking * 175) * dt;
+        // Frenagem progressiva proporcional à intensidade no gatilho L2
+        const brakeRate = (255 + model.braking * 175) * brakeInput * dt;
         p.speed = Math.max(p.speed - brakeRate, 0);
       } else {
         const drag = (48 + speedRatio * 34) * dt;
@@ -5779,7 +5786,11 @@
       // Rodapé com atalhos de controle
       ctx.fillStyle = '#94A3B8';
       ctx.font = '7.5px monospace';
-      ctx.fillText(touchSafe ? '[3] ACELERA / TOQUE CONTINUA | [⏸] VOLTA' : '[ENTER] / [P] / [ESC] — VOLTAR À PISTA', INTERNAL_WIDTH / 2, pY + 98);
+      if (this.input && this.input.gamepadConnected) {
+        ctx.fillText('🎮 XBOX: [RT] ACELERA | [LT] FREIA | [A] NITRO | [SELECT] CONFIG | [START] CONTINUAR', INTERNAL_WIDTH / 2, pY + 98);
+      } else {
+        ctx.fillText(touchSafe ? '[3] ACELERA / TOQUE CONTINUA | [⏸] VOLTA' : '[ENTER] / [P] / [ESC] — VOLTAR À PISTA', INTERNAL_WIDTH / 2, pY + 98);
+      }
       ctx.restore();
     }
 
