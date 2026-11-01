@@ -4488,14 +4488,14 @@
 
       // --- Linha de Marchas estilo Top Gear 2 ---
       const gearY = topY + 31;
-      drawPixelText('CAMBIO', leftX, gearY + 6.5, '#FFD700', 'bold 5px monospace', 'left');
+      drawPixelText('MARCHA', leftX, gearY + 6.5, '#FFD700', 'bold 5px monospace', 'left');
 
-      const gears = ['R', '1', '2', '3', '4', '5', '6'];
+      const gears = ['R', '1', '2', '3', '4', '5'];
       const curGear = this.player.currentGear || 1;
       const isRev = (this.player.speed < 0);
 
       for (let g = 0; g < gears.length; g++) {
-        const gx = leftX + 27 + g * 7.4;
+        const gx = leftX + 28 + g * 7.8;
         const gLabel = gears[g];
         const isActive = isRev ? (gLabel === 'R') : (gLabel === String(curGear));
 
@@ -4548,35 +4548,26 @@
       const rightMargin = 28;
       const rightEdge = INTERNAL_WIDTH - rightMargin;
 
-      // Linha 1: Tempo Atual
-      drawPixelText('ATUAL', rightEdge - 52, topY + 6, '#8FA3B8', 'bold 5px monospace', 'left');
+      // Linha 1: Tempo Atual (Rótulo em Amarelo Dourado #FFD700)
+      drawPixelText('ATUAL', rightEdge - 52, topY + 6, '#FFD700', 'bold 5px monospace', 'left');
       drawPixelText(this.formatTime(this.currentLapTime), rightEdge, topY + 6, '#00E5FF', 'bold 6.2px monospace', 'right');
 
-      // Linha 2: Melhor Volta
+      // Linha 2: Melhor Volta (Rótulo em Amarelo Dourado #FFD700)
       const bestStr = this.bestLapTime > 0 ? this.formatTime(this.bestLapTime) : '--:--.--';
-      drawPixelText('MELHOR', rightEdge - 52, topY + 15, '#8FA3B8', 'bold 5px monospace', 'left');
+      drawPixelText('MELHOR', rightEdge - 52, topY + 15, '#FFD700', 'bold 5px monospace', 'left');
       drawPixelText(bestStr, rightEdge, topY + 15, '#FFD700', 'bold 6.2px monospace', 'right');
 
-      // Linha 3: Volta Atual e Total (ambos do mesmo tamanho)
+      // Linha 3: Volta Atual e Total (Rótulo em Amarelo Dourado #FFD700; números de volta na mesma cor e tamanho)
       const curLap = Math.min(this.player.laps + 1, TOTAL_LAPS);
       const lapColor = (curLap === TOTAL_LAPS) ? '#FF5252' : '#FFFFFF';
-      drawPixelText('VOLTA', rightEdge - 52, topY + 25, '#8FA3B8', 'bold 5px monospace', 'left');
+      drawPixelText('VOLTA', rightEdge - 52, topY + 25, '#FFD700', 'bold 5px monospace', 'left');
+      drawPixelText(`${curLap}/${TOTAL_LAPS}`, rightEdge, topY + 25, lapColor, 'bold 6.5px monospace', 'right');
 
-      // Desenha número da volta atual e total no mesmo tamanho de fonte exatamente
-      ctx.font = 'bold 6.5px monospace';
-      ctx.textAlign = 'right';
-      const lapTotalStr = `/${TOTAL_LAPS}`;
-      const totalWidth = ctx.measureText(lapTotalStr).width;
-      // Total da volta
-      drawPixelText(lapTotalStr, rightEdge, topY + 25, '#94A3B8', 'bold 6.5px monospace', 'right');
-      // Volta atual (mesmo tamanho de fonte)
-      drawPixelText(`${curLap}`, rightEdge - totalWidth, topY + 25, lapColor, 'bold 6.5px monospace', 'right');
-
-      // Linha 4: Posição na Corrida (ambos do mesmo tamanho)
+      // Linha 4: Posição na Corrida (Rótulo em Amarelo Dourado #FFD700; números de posição na mesma cor e tamanho)
       const ranked = this.getRankedCars();
       const playerPos = ranked.findIndex(c => c.isPlayer) + 1;
 
-      drawPixelText('POSIÇÃO', rightEdge - 52, topY + 35, '#8FA3B8', 'bold 5px monospace', 'left');
+      drawPixelText('POSIÇÃO', rightEdge - 52, topY + 35, '#FFD700', 'bold 5px monospace', 'left');
 
       let posColor = '#FFFFFF';
       if (playerPos === 1) posColor = '#FFD700';
@@ -4584,15 +4575,7 @@
       else if (playerPos === 3) posColor = '#F59E0B';
       else if (playerPos <= 10) posColor = '#00E5FF';
 
-      // Desenha posição atual e total no mesmo tamanho de fonte exatamente
-      ctx.font = 'bold 7px monospace';
-      ctx.textAlign = 'right';
-      const posTotalStr = '/20';
-      const posTotalWidth = ctx.measureText(posTotalStr).width;
-      // Total de carros
-      drawPixelText(posTotalStr, rightEdge, topY + 35, '#94A3B8', 'bold 7px monospace', 'right');
-      // Posição atual (mesmo tamanho de fonte)
-      drawPixelText(`${playerPos}º`, rightEdge - posTotalWidth, topY + 35, posColor, 'bold 7px monospace', 'right');
+      drawPixelText(`${playerPos}º/20`, rightEdge, topY + 35, posColor, 'bold 7px monospace', 'right');
 
       // ========================================================
       // 3. MINIMAPA ORIGINAL PRESERVADO (POSIÇÃO E FORMA)
