@@ -149,6 +149,7 @@
 
       this.lapBannerTimer = 0;
       this.lapBannerText = '';
+      this.f1LeaderboardToggled = false;
 
       this.syncCanvasResolution();
       CarArt.warmUp(CAR_MODELS);
@@ -341,6 +342,7 @@
       this.finishingRace = false;
       this.finishTimer = 0;
       this.finishFadeAlpha = 0;
+      this.f1LeaderboardToggled = false;
       this.particlePool.clear();
     }
     startRaceCountdown() {
@@ -352,6 +354,7 @@
       this.finishingRace = false;
       this.finishTimer = 0;
       this.finishFadeAlpha = 0;
+      this.f1LeaderboardToggled = false;
       if (this.audio) {
         this.audio.stopTitleMusic();
         this.audio.musicPlaying = true;
@@ -414,6 +417,16 @@
           this.audio.silenceEffects();
         } else {
           this.audio.playBeep(440, 0.08);
+        }
+      }
+
+      if (this.input.justPressedLeaderboard) {
+        this.f1LeaderboardToggled = !this.f1LeaderboardToggled;
+      }
+      if ((this.state === 'RACING' || this.state === 'COUNTDOWN' || this.state === 'PAUSED') && this.input.lastCanvasClick) {
+        if (this.input.lastCanvasClick.x <= 80 && this.input.lastCanvasClick.y <= 50) {
+          this.f1LeaderboardToggled = !this.f1LeaderboardToggled;
+          this.input.lastCanvasClick = null;
         }
       }
 
@@ -4343,6 +4356,68 @@
       ctx.restore();
     }
 
+    renderF1Leaderboard(ctx) {
+      const ranked = this.getRankedCars();
+      if (!ranked || ranked.length === 0) return;
+
+      const towerX = 8;
+      const towerY = 46;
+      const towerW = 28;
+      const rowH = 7.8;
+      const count = Math.min(20, ranked.length);
+      const towerH = count * rowH + 2;
+
+      // Fundo preto transparente com borda sutil
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+      ctx.fillRect(towerX, towerY, towerW, towerH);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 0.6;
+      ctx.strokeRect(towerX, towerY, towerW, towerH);
+
+      for (let i = 0; i < count; i++) {
+        const pos = i + 1;
+        const car = ranked[i];
+        const rowY = towerY + 1 + i * rowH;
+        const isPlayer = !!car.isPlayer;
+
+        // Destaque sutil na linha do jogador
+        if (isPlayer) {
+          ctx.fillStyle = 'rgba(0, 229, 255, 0.22)';
+          ctx.fillRect(towerX + 0.5, rowY, towerW - 1, rowH);
+        }
+
+        // Posição 1 com bloco vermelho sólido no número (estilo F1 broadcast)
+        if (pos === 1) {
+          ctx.fillStyle = '#E10600';
+          ctx.fillRect(towerX + 1, rowY + 0.5, 7.5, rowH - 1.0);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 4.2px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('1', towerX + 4.75, rowY + rowH - 2.2);
+        } else {
+          // Posições 2 a 20: números menores em branco / cinza
+          ctx.fillStyle = isPlayer ? '#00E5FF' : '#E2E8F0';
+          ctx.font = 'bold 4.0px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(String(pos), towerX + 8, rowY + rowH - 2.2);
+        }
+
+        // Faixa de cor da equipe / carro
+        const badgeColor = car.bodyColor || '#64748B';
+        ctx.fillStyle = badgeColor;
+        ctx.fillRect(towerX + 9.5, rowY + 1.2, 1.8, rowH - 2.4);
+
+        // Iniciais do piloto com exatamente 3 letras maiúsculas
+        const rawCode = car.driverCode || (car.isPlayer ? 'VOC' : 'CPU');
+        const code = (rawCode + '___').slice(0, 3).toUpperCase();
+
+        ctx.font = 'bold 4.2px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = isPlayer ? '#00E5FF' : '#FFFFFF';
+        ctx.fillText(code, towerX + 12.8, rowY + rowH - 2.2);
+      }
+    }
+
     renderHUD(ctx) {
       ctx.save();
       const touchHud = this.input.touchControlsVisible;
@@ -4515,30 +4590,37 @@
         }
       }
 
+      // --- Classificação em Tempo Real estilo F1 (Iniciais de 1 a 20) ---
+      const showF1Tower = !!(this.input.leaderboard || this.f1LeaderboardToggled);
+      if (showF1Tower) {
+        this.renderF1Leaderboard(ctx);
+      }
+
       // --- Indicador Aerodinâmico de Vácuo (Slipstream) ---
       if (this.player.inSlipstream) {
         const intensity = Math.min(1.0, this.player.slipstreamIntensity || 0.5);
+        const vacX = showF1Tower ? (leftX + 31) : leftX;
         const vacY = topY + 41;
-        const vacW = 74;
+        const vacW = showF1Tower ? 56 : 74;
         const vacH = 8;
 
         ctx.fillStyle = '#000000';
-        ctx.fillRect(leftX + 0.8, vacY + 0.8, vacW, vacH);
+        ctx.fillRect(vacX + 0.8, vacY + 0.8, vacW, vacH);
         ctx.fillStyle = 'rgba(8, 16, 26, 0.85)';
-        ctx.fillRect(leftX, vacY, vacW, vacH);
+        ctx.fillRect(vacX, vacY, vacW, vacH);
         ctx.strokeStyle = '#00E5FF';
         ctx.lineWidth = 0.8;
-        ctx.strokeRect(leftX, vacY, vacW, vacH);
+        ctx.strokeRect(vacX, vacY, vacW, vacH);
 
         const fillW = Math.max(2, (vacW - 3) * intensity);
-        const vacGrad = ctx.createLinearGradient(leftX + 1.5, 0, leftX + vacW - 1.5, 0);
+        const vacGrad = ctx.createLinearGradient(vacX + 1.5, 0, vacX + vacW - 1.5, 0);
         vacGrad.addColorStop(0, '#00E5FF');
         vacGrad.addColorStop(1, '#00FF66');
         ctx.fillStyle = vacGrad;
-        ctx.fillRect(leftX + 1.5, vacY + 1.5, fillW, vacH - 3);
+        ctx.fillRect(vacX + 1.5, vacY + 1.5, fillW, vacH - 3);
 
         const pct = Math.max(5, Math.round(intensity * 100));
-        drawPixelText(`▲ VÁCUO ${pct}%`, leftX + vacW / 2, vacY + 6.2, '#FFFFFF', 'bold 5px monospace', 'center');
+        drawPixelText(`▲ VÁCUO ${pct}%`, vacX + vacW / 2, vacY + 6.2, '#FFFFFF', 'bold 5px monospace', 'center');
       }
 
       // ========================================================

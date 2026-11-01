@@ -3,7 +3,7 @@
       this.onUserGesture = onUserGesture;
       this.onViewportChange = onViewportChange;
 
-      this.keys = { up: false, down: false, left: false, right: false, nitro: false };
+      this.keys = { up: false, down: false, left: false, right: false, nitro: false, leaderboard: false };
       this.touch = {
         dpadUp: false,
         dpadDown: false,
@@ -19,6 +19,7 @@
       this.left = false;
       this.right = false;
       this.nitro = false;
+      this.leaderboard = false;
       this.enter = false;
       this.esc = false;
       this.keyM = false;
@@ -31,6 +32,7 @@
       this.justPressedEsc = false;
       this.justPressedM = false;
       this.justPressedNitro = false;
+      this.justPressedLeaderboard = false;
       this.justPressedColor = false;
       this.lastDigit = null;
       this.lastCanvasClick = null;
@@ -49,6 +51,7 @@
       this.gpActiveLeft = false;
       this.gpActiveRight = false;
       this.gpActiveNitro = false;
+      this.gpLeaderboard = false;
       this.prevGamepadButtons = {};
 
       this.isMobileDevice = this.detectMobile();
@@ -212,6 +215,10 @@
       this.left = this.keys.left || this.touch.dpadLeft || !!this.gpActiveLeft;
       this.right = this.keys.right || this.touch.dpadRight || !!this.gpActiveRight;
       this.nitro = this.keys.nitro || this.touch.btn1Nitro || !!this.gpActiveNitro;
+
+      const prevLeaderboard = this.leaderboard;
+      this.leaderboard = !!(this.keys.leaderboard || this.gpLeaderboard);
+      if (this.leaderboard && !prevLeaderboard) this.justPressedLeaderboard = true;
 
       // Navegação por teclado / touch
       if ((this.keys.up || this.touch.dpadUp) && !prevUp) this.justPressedUp = true;
@@ -407,6 +414,13 @@
           case 'C':
             this.justPressedColor = true;
             break;
+          case 'x':
+          case 'X':
+          case 'Tab':
+            e.preventDefault();
+            this.keys.leaderboard = true;
+            this.syncCombinedInputs();
+            break;
           case '1': case '2': case '3': case '4': case '5':
           case '6': case '7': case '8': case '9': case '0':
             this.lastDigit = parseInt(e.key, 10);
@@ -515,6 +529,12 @@
           case 'm':
           case 'M':
             this.keyM = false;
+            break;
+          case 'x':
+          case 'X':
+          case 'Tab':
+            this.keys.leaderboard = false;
+            this.syncCombinedInputs();
             break;
         }
       });
@@ -999,6 +1019,7 @@
         this.gpActiveLeft = false;
         this.gpActiveRight = false;
         this.gpActiveNitro = false;
+        this.gpLeaderboard = false;
         return;
       }
 
@@ -1089,8 +1110,10 @@
       const btnSelect = isBtnPressed(8);
       const btnStart = isBtnPressed(9);
 
-      // Nitro é o botão A (com suporte também a X, Y e RB)
-      this.gpActiveNitro = btnA || btnX || btnY || btnRB;
+      // Nitro é o botão A (com suporte também a RB e Y)
+      this.gpActiveNitro = btnA || btnRB || btnY;
+      // Botão X dedicado para a classificação estilo F1 em tempo real
+      this.gpLeaderboard = btnX;
 
       // 2. Analógico Direito (Right Stick) — SOMENTE para navegar nos menus/opções
       const rightStickX = (gp.axes && gp.axes.length > 2) ? gp.axes[2] : 0;
@@ -1126,7 +1149,10 @@
       if (checkPulse('btnB', btnB)) {
         this.justPressedEsc = true;
       }
-      if (checkPulse('btnX', btnX) || checkPulse('btnRB', btnRB) || checkPulse('btnY', btnY)) {
+      if (checkPulse('btnX', btnX)) {
+        this.justPressedLeaderboard = true;
+      }
+      if (checkPulse('btnRB', btnRB) || checkPulse('btnY', btnY)) {
         this.justPressedNitro = true;
       }
 
@@ -1162,6 +1188,7 @@
       this.justPressedEsc = false;
       this.justPressedM = false;
       this.justPressedNitro = false;
+      this.justPressedLeaderboard = false;
       this.justPressedColor = false;
       this.lastDigit = null;
       this.lastCanvasClick = null;
