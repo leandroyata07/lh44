@@ -36,6 +36,7 @@
       this.justPressedColor = false;
       this.lastDigit = null;
       this.lastCanvasClick = null;
+      this.mouseCanvasPos = null;
 
       // Suporte nativo a Gamepads / Joysticks (Xbox XInput/DInput, Gamesir, etc.)
       this.gamepadConnected = false;
@@ -69,10 +70,12 @@
     }
 
     detectMobile() {
+      const ua = navigator.userAgent || '';
+      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
       const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
       const touchCapable = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-      const smallScreen = Math.min(window.innerWidth, window.innerHeight) <= 560;
-      return Boolean((coarse && touchCapable) || smallScreen || (touchCapable && window.innerWidth <= 960));
+      const smallScreen = Math.min(window.innerWidth, window.innerHeight) <= 768;
+      return Boolean(isMobileUA || (coarse && touchCapable) || (touchCapable && smallScreen));
     }
 
     loadOpacity(key, fallback) {
@@ -290,6 +293,15 @@
         this.gamepadConnected = false;
       });
 
+      // Solicita tela cheia automaticamente na primeira interação em navegadores de celular
+      const tryAutoMobileFs = () => {
+        if (this.isMobileDevice && !this.isFullscreenActive() && !this.userExitedFullscreen) {
+          this.enterFullscreen();
+        }
+      };
+      window.addEventListener('touchstart', tryAutoMobileFs, { passive: true });
+      window.addEventListener('pointerdown', tryAutoMobileFs, { passive: true });
+
       window.addEventListener('keydown', (e) => {
         this.notifyGesture(false);
         const isInput = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
@@ -301,6 +313,24 @@
             this.esc = true;
           }
           return;
+        }
+
+        const isRacingMode = Boolean(window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED'));
+
+        // Regra universal: Fora das corridas (nos menus), A = Confirmar/Avançar e B = Voltar
+        if (!isRacingMode) {
+          if (e.key === 'a' || e.key === 'A') {
+            e.preventDefault();
+            if (!this.enter) this.justPressedEnter = true;
+            this.enter = true;
+            return;
+          }
+          if (e.key === 'b' || e.key === 'B') {
+            e.preventDefault();
+            if (!this.esc) this.justPressedEsc = true;
+            this.esc = true;
+            return;
+          }
         }
 
         // Intercepta e previne ações do sistema Android quando botões do GameSir X5 são pressionados!
@@ -318,16 +348,23 @@
 
         // Mapeamento de KeyCodes sintetizados pelo Android para botões de controle físico (GameSir X5 / etc.)
         switch (e.keyCode) {
-          case 96: // BUTTON_A (Acelera na corrida e Confirma nos menus)
-            this.keys.up = true;
-            if (!this.enter) this.justPressedEnter = true;
-            this.enter = true;
+          case 96: // BUTTON_A (Confirma nos menus / Nitro na corrida)
+            if (!isRacingMode) {
+              if (!this.enter) this.justPressedEnter = true;
+              this.enter = true;
+            } else {
+              if (!this.keys.nitro) this.justPressedNitro = true;
+              this.keys.nitro = true;
+            }
             this.syncCombinedInputs();
             return;
-          case 97: // BUTTON_B (Freia na corrida e Volta nos menus)
-            this.keys.down = true;
-            if (!this.esc) this.justPressedEsc = true;
-            this.esc = true;
+          case 97: // BUTTON_B (Volta nos menus / Freia na corrida)
+            if (!isRacingMode) {
+              if (!this.esc) this.justPressedEsc = true;
+              this.esc = true;
+            } else {
+              this.keys.down = true;
+            }
             this.syncCombinedInputs();
             return;
           case 105: // BUTTON_R2 / RT (Gatilho de aceleração do Android)
@@ -347,7 +384,9 @@
             if (!this.esc) this.justPressedEsc = true;
             this.esc = true;
             return;
-          case 99: // BUTTON_X
+          case 99: // BUTTON_X (Classificação F1 em tempo real)
+            this.justPressedLeaderboard = true;
+            return;
           case 100: // BUTTON_Y
           case 102: // BUTTON_L1
           case 103: // BUTTON_R1
@@ -817,6 +856,20 @@
           if (canvasTouched) { canvasTouched = false; return; }
           handleCanvasTap(e.clientX, e.clientY);
         });
+
+        canvasEl.addEventListener('mousemove', (e) => {
+          const pt = this.toViewportLocal(e.clientX, e.clientY);
+          if (pt.w > 0 && pt.h > 0) {
+            this.mouseCanvasPos = {
+              x: (pt.x / pt.w) * INTERNAL_WIDTH,
+              y: (pt.y / pt.h) * INTERNAL_HEIGHT
+            };
+          }
+        });
+
+        canvasEl.addEventListener('mouseleave', () => {
+          this.mouseCanvasPos = null;
+        });
       }
 
       // =====================================================
@@ -1112,8 +1165,8 @@
 
       // Nitro é o botão A (com suporte também a RB e Y)
       this.gpActiveNitro = btnA || btnRB || btnY;
-      // Botão X dedicado para a classificação estilo F1 em tempo real
-      this.gpLeaderboard = btnX;
+      // Botão X dedicado para exibir/ocultar a classificação F1 (toggle)
+      this.gpLeaderboard = false;
 
       // 2. Analógico Direito (Right Stick) — SOMENTE para navegar nos menus/opções
       const rightStickX = (gp.axes && gp.axes.length > 2) ? gp.axes[2] : 0;

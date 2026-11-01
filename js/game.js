@@ -42,7 +42,8 @@
     }
 
     updateTransmission() {
-      const speedRatio = Math.max(0, Math.min(1, this.speed / this.model.maxSpeed));
+      const normalMax = (this.model && this.model.maxSpeed) ? this.model.maxSpeed : 220;
+      const speedRatio = Math.max(0, this.speed / normalMax);
       let gInfo = GEAR_RATIOS[0];
       for (let i = GEAR_RATIOS.length - 1; i >= 0; i--) {
         if (speedRatio >= GEAR_RATIOS[i].minRatio) {
@@ -52,7 +53,9 @@
       }
       this.currentGear = gInfo.gear;
       const gProgress = (speedRatio - gInfo.minRatio) / Math.max(0.01, gInfo.maxRatio - gInfo.minRatio);
-      this.rpm = Math.floor(gInfo.minRpm + Math.min(1, Math.max(0, gProgress)) * (gInfo.maxRpm - gInfo.minRpm));
+      // Nas descidas e no vácuo (quando ultrapassa o limite de reta), o motor estica além do giro nominal (over-rev até 8800 RPM)!
+      const overspeedBonus = Math.max(0, speedRatio - 1.0) * 4500;
+      this.rpm = Math.floor(gInfo.minRpm + Math.min(1.0, Math.max(0, gProgress)) * (gInfo.maxRpm - gInfo.minRpm) + overspeedBonus);
     }
   }
 
@@ -76,6 +79,7 @@
       this.particlePool = new ParticlePool(180);
 
       this.state = 'MENU';
+      this.titleMenuIndex = 0;
       this.trackIndex = 0;
       this.track = null;
       this.selectedCarIndex = 0;
@@ -124,6 +128,8 @@
       this.gameMode = 'CHAMPIONSHIP'; // 'CHAMPIONSHIP' ou 'QUICK_RACE'
       this.selectedModeIndex = 0;     // 0: Campeonato F1, 1: Corrida Rápida
       this.selectedQuickTrackIndex = 0; // 0: Brasil GP, 1: Serra, 2: Noite
+      this.seasonSchedule = [];
+      this.seasonStage = 0;
 
       this.countdown = 3.6;
       this.startLightsStage = 0;
@@ -251,6 +257,19 @@
       }
     }
 
+    getChampionshipSchedule() {
+      // Retorna todos os índices de pistas do jogo, garantindo que São Paulo (SP) seja a grande final (última etapa)
+      const spIndex = TRACK_DEFINITIONS.findIndex(t => t.id === 'sao_paulo' || t.stateCode === 'SP');
+      const schedule = [];
+      for (let i = 0; i < TRACK_DEFINITIONS.length; i++) {
+        if (i !== spIndex) schedule.push(i);
+      }
+      if (spIndex !== -1) {
+        schedule.push(spIndex);
+      }
+      return schedule;
+    }
+
     loadTrack(index) {
       this.trackIndex = index;
       const def = TRACK_DEFINITIONS[index];
@@ -298,6 +317,9 @@
         bot.nitroCooldown = 3.5 + Math.random() * 5.0;
         bot.inSlipstream = false;
         bot.slipstreamIntensity = 0;
+        bot.slipstreamDecayTimer = 0;
+        bot.slipstreamStoredIntensity = 0;
+        bot.slipstreamPeakSpeed = 0;
         bot.launchDelay = 0.04 + ((slot - 1) * 0.01) + Math.random() * 0.14;
         bot.aiSkill = Math.max(0.78, Math.min(0.99, profile.baseAiSkill + (Math.random() - 0.5) * 0.025));
         this.cars.push(bot);
@@ -319,12 +341,16 @@
       this.player.finishTime = 0;
       this.player.steerAngle = 0;
       this.player.inSlipstream = false;
+      this.player.slipstreamIntensity = 0;
+      this.player.slipstreamDecayTimer = 0;
+      this.player.slipstreamStoredIntensity = 0;
+      this.player.slipstreamPeakSpeed = 0;
       this.player.nitroCharges = 3;
       this.player.nitroTimer = 0;
       this.player.nitroDecayTimer = 0;
       this.cars.push(this.player);
 
-      this.playerRenderPos = { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 38 };
+      this.playerRenderPos = { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 32 };
       this.smoothCurveScreenX = 0;
       this.foregroundBots = [];
       if (this.track && this.track.segments) {
@@ -431,6 +457,8 @@
       }
 
       if (this.pauseBtn) {
+        const isRacingState = (this.state === 'RACING' || this.state === 'COUNTDOWN' || this.state === 'PAUSED');
+        this.pauseBtn.style.display = isRacingState ? 'flex' : 'none';
         const isPaused = (this.state === 'PAUSED');
         this.pauseBtn.textContent = isPaused ? '▶' : '⏸';
         this.pauseBtn.title = isPaused ? 'Continuar Corrida' : 'Pausar Jogo';
@@ -441,7 +469,8 @@
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
         this.audio.playTitleMusic();
-        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 1100 * dt);
+        // Câmera avançando continuamente na pista 3D ao vivo em velocidade clássica fluida
+        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
         this.cameraRoll = 0;
         this.shake = 0;
         this.updateSkyScroll(dt);
@@ -449,15 +478,26 @@
 
         let shouldAdvance = false;
         if (this.input.lastCanvasClick) {
+          const cx = this.input.lastCanvasClick.x;
+          const cy = this.input.lastCanvasClick.y;
           this.input.lastCanvasClick = null;
+
+          // Se clicou na engrenagem no canto superior direito
+          if (cx >= INTERNAL_WIDTH - 38 && cy <= 38) {
+            const gearBtn = document.getElementById('gear-btn');
+            if (gearBtn) gearBtn.click();
+            this.input.clearPulses();
+            return;
+          }
           shouldAdvance = true;
         }
+
         if (this.input.justPressedEnter) {
           shouldAdvance = true;
         }
 
         if (shouldAdvance) {
-          this.audio.playBeep(440, 0.08);
+          this.audio.playBeep(480, 0.08);
           this.state = 'MODE_SELECT';
           this.input.clearPulses();
           return;
@@ -490,29 +530,21 @@
             return;
           }
 
-          // Clique no card 0 (Campeonato)
+          // Clique no card 0 (Campeonato) — seleciona sem avançar
           if (click.x >= L.card0.x && click.x <= L.card0.x + L.card0.w &&
               click.y >= L.card0.y && click.y <= L.card0.y + L.card0.h) {
-            if (this.selectedModeIndex === 0) {
-              this.input.justPressedEnter = true;
-            } else {
-              this.selectedModeIndex = 0;
-              this.audio.playBeep(440, 0.06);
-            }
+            this.selectedModeIndex = 0;
+            this.audio.playBeep(440, 0.06);
           }
 
-          // Clique no card 1 (Corrida Rápida)
+          // Clique no card 1 (Corrida Rápida) — seleciona sem avançar
           if (click.x >= L.card1.x && click.x <= L.card1.x + L.card1.w &&
               click.y >= L.card1.y && click.y <= L.card1.y + L.card1.h) {
-            if (this.selectedModeIndex === 1) {
-              this.input.justPressedEnter = true;
-            } else {
-              this.selectedModeIndex = 1;
-              this.audio.playBeep(440, 0.06);
-            }
+            this.selectedModeIndex = 1;
+            this.audio.playBeep(440, 0.06);
           }
 
-          // Clique no botão CONFIRMAR
+          // Clique no botão CONTINUAR
           if (click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
               click.y >= L.btnConfirm.y && click.y <= L.btnConfirm.y + L.btnConfirm.h) {
             this.input.justPressedEnter = true;
@@ -528,8 +560,10 @@
           this.audio.playBeep(523, 0.12);
           if (this.selectedModeIndex === 0) {
             this.gameMode = 'CHAMPIONSHIP';
-            this.trackIndex = 0;
-            this.loadTrack(0);
+            this.seasonSchedule = this.getChampionshipSchedule();
+            this.seasonStage = 0;
+            this.trackIndex = this.seasonSchedule[0];
+            this.loadTrack(this.trackIndex);
             this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
             this.state = 'CAR_SELECT';
           } else {
@@ -598,14 +632,10 @@
             for (let k = 0; k < L.chips.length; k++) {
               const c = L.chips[k];
               if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
-                if (this.selectedQuickTrackIndex === c.i) {
-                  this.input.justPressedEnter = true;
-                } else {
-                  this.selectedQuickTrackIndex = c.i;
-                  this.trackIndex = c.i;
-                  this.loadTrack(c.i);
-                  this.audio.playBeep(440, 0.06);
-                }
+                this.selectedQuickTrackIndex = c.i;
+                this.trackIndex = c.i;
+                this.loadTrack(c.i);
+                this.audio.playBeep(440, 0.06);
                 break;
               }
             }
@@ -858,7 +888,7 @@
           this.audio.playBeep(440, 0.05);
           this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
         }
-        if (this.input.justPressedNitro || this.input.justPressedColor) {
+        if (this.input.justPressedColor) {
           this.audio.playBeep(440, 0.05);
           this.colorIndex = (this.colorIndex + 1) % CAR_COLORS.length;
         }
@@ -972,6 +1002,9 @@
         let clickedInteractive = false;
         if (this.input.lastCanvasClick && this.setupCooldown <= 0) {
           const click = this.input.lastCanvasClick;
+          this.input.lastCanvasClick = null;
+
+          // Seleção de Clima (apenas seleciona o clima!)
           for (let k = 0; k < L.conds.length; k++) {
             const c = L.conds[k];
             if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
@@ -982,6 +1015,8 @@
               break;
             }
           }
+
+          // Seleção de Trilha Sonora (apenas seleciona a música!)
           if (!clickedInteractive) {
             for (let k = 0; k < L.songs.length; k++) {
               const c = L.songs[k];
@@ -999,6 +1034,8 @@
               }
             }
           }
+
+          // Botão Voltar
           if (!clickedInteractive && L.btnBack) {
             const b = L.btnBack;
             if (click.x >= b.x && click.x <= b.x + b.w && click.y >= b.y && click.y <= b.y + b.h) {
@@ -1015,6 +1052,8 @@
               return;
             }
           }
+
+          // Botão Confirmar / Iniciar Corrida
           if (!clickedInteractive && L.startBtn) {
             const b = L.startBtn;
             if (click.x >= b.x && click.x <= b.x + b.w && click.y >= b.y && click.y <= b.y + b.h) {
@@ -1151,8 +1190,10 @@
             this.state = 'MENU';
             this.audio.musicPlaying = false;
             this.audio.playTitleMusic();
-          } else if (this.trackIndex < TRACK_DEFINITIONS.length - 1) {
-            this.loadTrack(this.trackIndex + 1);
+          } else if (this.seasonSchedule && this.seasonSchedule.length > 0 && this.seasonStage < this.seasonSchedule.length - 1) {
+            this.seasonStage++;
+            this.trackIndex = this.seasonSchedule[this.seasonStage];
+            this.loadTrack(this.trackIndex);
             // Sorteia uma música aleatória diferente da anterior para a próxima etapa do campeonato
             const curSong = this.songIndex;
             let nextSong = curSong;
@@ -1301,8 +1342,8 @@
         }
 
       // Detecção de Vácuo (Slipstream) progressivo e gradual:
-      // Inicia suavemente a até 2400 unidades de distância (visível na reta longa) e atinge o ápice de 100%
-      // a partir de dois carros à frente (<= 350 unidades), inclusive colado no para-choque!
+      // Atinge o ápice de 100% a uma distância segura (<= 700 unidades, o dobro da anterior)
+      // permitindo embalar e preparar o slingshot com perícia e sem colidir na traseira!
       p.inSlipstream = false;
       p.slipstreamIntensity = 0;
       p.slipstreamTarget = null;
@@ -1313,15 +1354,15 @@
           const other = this.cars[i];
           if (other.isPlayer) continue;
           const aheadDz = this.shortestDeltaZ(other.z, p.z);
-          if (aheadDz >= -30 && aheadDz <= 2400) {
+          if (aheadDz >= -30 && aheadDz <= 2600) {
             let distW = 0;
-            if (aheadDz <= 350) {
+            if (aheadDz <= 700) {
               distW = 1.0;
             } else {
-              const progress = (aheadDz - 350) / (2400 - 350);
+              const progress = (aheadDz - 700) / (2600 - 700);
               distW = Math.pow(1.0 - progress, 0.82);
             }
-            const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2400);
+            const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2600);
             const latDiff = Math.abs(other.x - p.x);
             if (latDiff < maxLat) {
               const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1337,26 +1378,43 @@
           p.inSlipstream = true;
           p.slipstreamIntensity = bestIntensity;
           p.slipstreamTarget = bestTarget;
+          p.slipstreamDecayTimer = 1.0; // Slingshot calibrado para 1 segundo com decaimento gradual
+          p.slipstreamStoredIntensity = Math.max(p.slipstreamStoredIntensity || 0, bestIntensity);
+          p.slipstreamPeakSpeed = Math.max(p.slipstreamPeakSpeed || 0, p.speed);
+        }
+      }
+
+      if (!p.inSlipstream && p.slipstreamDecayTimer > 0) {
+        p.slipstreamDecayTimer = Math.max(0, p.slipstreamDecayTimer - dt);
+        if (p.slipstreamDecayTimer <= 0) {
+          p.slipstreamStoredIntensity = 0;
+          p.slipstreamPeakSpeed = 0;
         }
       }
 
       // Ganho progressivo de velocidade e aceleração conforme a proximidade (Fórmula 1):
-      // Mesmo com o carro na velocidade máxima nominal (ex: Fusca a 205 km/h), o vácuo reduz
-      // o arrasto do ar e gera sucção imediata que eleva gradualmente a velocidade máxima
-      // e acelera o veículo para encostar no líder e preparar o slingshot!
-      const slipInt = p.slipstreamIntensity || 0;
+      // Decaimento gradativo e proporcional ao longo de 1 segundo pós-desvio do vácuo
+      const slingshotRatio = Math.max(0, Math.min(1.0, p.slipstreamDecayTimer / 1.0));
+      const effectiveSlipInt = p.inSlipstream
+        ? (p.slipstreamIntensity || 0)
+        : (p.slipstreamDecayTimer > 0 ? ((p.slipstreamStoredIntensity || 0.4) * slingshotRatio) : 0);
+      const slipInt = effectiveSlipInt;
       // Bônus de velocidade máxima do Nitro com rampa suave de decaimento de 3 segundos pós-término
       const nitroBoostRatio = p.isNitro
         ? 0.30
         : (p.nitroDecayTimer > 0 ? (0.30 * (p.nitroDecayTimer / 3.0)) : 0);
       const baseMax = model.maxSpeed * (1.0 + nitroBoostRatio);
       const speedGapBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
-        ? (p.slipstreamTarget.speed - p.speed) * 0.85 * slipInt
+        ? (p.slipstreamTarget.speed - p.speed) * 0.85 * effectiveSlipInt
         : 0;
-      const vacuumSpeedBoost = ((baseMax * 0.22) + 24) * slipInt;
-      const effectiveMaxSpeed = baseMax + vacuumSpeedBoost + speedGapBonus;
+      const vacuumSpeedBoost = ((baseMax * 0.22) + 24) * effectiveSlipInt;
+      let effectiveMaxSpeed = baseMax + vacuumSpeedBoost + speedGapBonus;
+      if (!p.inSlipstream && p.slipstreamDecayTimer > 0 && p.slipstreamPeakSpeed > effectiveMaxSpeed) {
+        // Diminui gradativamente da velocidade de pico de volta à velocidade nominal ao longo de 1 segundo
+        effectiveMaxSpeed = effectiveMaxSpeed + (p.slipstreamPeakSpeed - effectiveMaxSpeed) * slingshotRatio;
+      }
       const accelNitroMul = p.isNitro ? 1.85 : (p.nitroDecayTimer > 0 ? (1.0 + 0.85 * (p.nitroDecayTimer / 3.0)) : 1.0);
-      const effectiveAccel = model.acceleration * accelNitroMul * (1.0 + 1.25 * slipInt);
+      const effectiveAccel = model.acceleration * accelNitroMul * (1.0 + 1.25 * effectiveSlipInt);
       const speedRatio = Math.min(1.2, p.speed / Math.max(1, effectiveMaxSpeed));
 
       // Resposta analógica de pressão dos gatilhos L2 e R2 (ou 1.0 com teclado/touch)
@@ -1366,13 +1424,13 @@
       const isAccelerating = ((throttleInput > 0.05) || p.isNitro) && (this.state === 'RACING');
       p.isBraking = (brakeInput > 0.05) && (this.state === 'RACING');
 
-      // Curva de torque progressiva por marcha + efeito gravitacional de subida/descida
+      // Curva de torque e resistência aerodinâmica para criar cadência real de aceleração através das marchas:
       const slope = (playerSeg.p2.world.y - playerSeg.p1.world.y) / SEGMENT_LENGTH;
-      const torqueFactor = 1.18 - Math.min(1, speedRatio) * 0.42;
+      const airDragFactor = Math.pow(Math.min(1.0, speedRatio), 1.6) * 0.58;
+      const torqueFactor = Math.max(0.32, 1.28 - airDragFactor);
 
       // Descida de ladeira (slope < 0): ganha aceleracao gravitacional e ultrapassa o limite de velocidade nominal!
-      // Se um carro e limitado a 230 km/h, na descida pode ultrapassar 255-270+ km/h!
-      const downhillBonus = Math.max(0, -slope * 230);
+      const downhillBonus = Math.max(0, -slope * 300);
       const dynamicMaxSpeed = effectiveMaxSpeed + downhillBonus;
 
       if (isAccelerating && p.isBraking) {
@@ -1382,15 +1440,23 @@
         const trailBrakeRate = (125 + model.braking * 95) * brakeInput * dt;
         p.speed = Math.max(0, p.speed - trailBrakeRate);
       } else if (isAccelerating) {
-        const rate = (132 + effectiveAccel * 135) * torqueFactor * throttleInput * dt;
-        const suctionPull = (55 + model.acceleration * 70) * slipInt * dt;
+        // Cadência de arrancada proporcional ao carro, levando ~4 a 6 segundos para atingir a velocidade máxima
+        const basePower = p.isNitro ? (75 + effectiveAccel * 65) : (44 + effectiveAccel * 48);
+        const rate = basePower * torqueFactor * throttleInput * dt;
+        const suctionPull = (40 + model.acceleration * 50) * slipInt * dt;
         // Velocidade alvo correspondente à pressão no gatilho R2 (permite dosar velocidade de cruzeiro)
         const targetPartialSpeed = p.isNitro ? dynamicMaxSpeed : dynamicMaxSpeed * (0.35 + 0.65 * throttleInput);
         if (p.speed < targetPartialSpeed) {
           p.speed = Math.min(p.speed + rate + suctionPull, targetPartialSpeed);
         } else {
-          // Desaceleração gradual e suave (sem cortes abruptos)
-          const excessDecay = Math.max(18, (p.speed - targetPartialSpeed) * 0.90) * dt;
+          // Desaceleração cadenciada e gradual pós-slingshot, nitro e ladeiras:
+          // Em vez de frenagem brusca, o excesso de velocidade se dissipa de forma suave e progressiva (~4 a 8 km/h por segundo),
+          // permitindo que carros mais lentos (ex: Fusca) mantenham a vantagem da ultrapassagem por vários segundos.
+          const excessSpeed = p.speed - targetPartialSpeed;
+          const isSlingshot = (p.slipstreamDecayTimer > 0);
+          const excessDecay = isSlingshot
+            ? Math.min(7.5, Math.max(3.2, excessSpeed * 0.15)) * dt
+            : Math.min(9.0, Math.max(3.8, excessSpeed * 0.18)) * dt;
           p.speed = Math.max(targetPartialSpeed, p.speed - excessDecay);
         }
       } else if (p.isBraking) {
@@ -1398,16 +1464,26 @@
         const brakeRate = (255 + model.braking * 175) * brakeInput * dt;
         p.speed = Math.max(p.speed - brakeRate, 0);
       } else {
-        const drag = (48 + speedRatio * 34) * dt;
+        const drag = (42 + speedRatio * 30) * dt;
         p.speed = Math.max(p.speed - drag, 0);
       }
 
       // Gravidade fisica continua:
-      // - Descendo (slope < 0): acelera o carro para frente!
-      // - Subindo (slope > 0): puxa o carro para tras, reduzindo velocidade!
-      if (p.speed > 10 && slope !== 0) {
-        const gravityForce = -slope * 340 * dt;
-        p.speed = Math.max(25, Math.min(dynamicMaxSpeed, p.speed + gravityForce));
+      // - Descendo (slope < 0): ganho visível e contínuo de aceleração gravitacional que embala o carro ladeira abaixo!
+      if (p.speed > 10 && slope < 0) {
+        const gravityForce = -slope * 460 * dt;
+        // Permite embalar na descida somando perfeitamente a gravidade com a velocidade de vácuo, slingshot e nitro
+        const downhillTerminalSpeed = dynamicMaxSpeed + 35;
+        p.speed = Math.min(downhillTerminalSpeed, p.speed + gravityForce);
+        // Trepidação de chassi proporcional ao excesso de velocidade na descida (reduzida pela metade)
+        if (p.speed > model.maxSpeed) {
+          const overDiff = (p.speed - model.maxSpeed);
+          this.shake = Math.max(this.shake, Math.min(1.4, overDiff * 0.04));
+        }
+      } else if (p.speed > 10 && slope > 0) {
+        // Subindo (slope > 0): o peso da subida segura o carro
+        const gravityResistance = slope * 280 * dt;
+        p.speed = Math.max(25, p.speed - gravityResistance);
       }
 
       p.updateTransmission();
@@ -1603,9 +1679,9 @@
             if (i === k) continue;
             const other = this.cars[k];
             const aheadDz = this.shortestDeltaZ(other.z, bot.z);
-            if (aheadDz >= -30 && aheadDz <= 2400) {
-              const distW = (aheadDz <= 350) ? 1.0 : Math.pow(1.0 - ((aheadDz - 350) / (2400 - 350)), 0.82);
-              const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2400);
+            if (aheadDz >= -30 && aheadDz <= 2600) {
+              const distW = (aheadDz <= 700) ? 1.0 : Math.pow(1.0 - ((aheadDz - 700) / (2600 - 700)), 0.82);
+              const maxLat = 0.65 + 0.35 * (Math.max(0, aheadDz) / 2600);
               const latDiff = Math.abs(other.x - bot.x);
               if (latDiff < maxLat) {
                 const alignW = Math.max(0, 1.0 - (latDiff / maxLat));
@@ -1621,26 +1697,45 @@
           if (bestIntensity > 0.015) {
             bot.inSlipstream = true;
             bot.slipstreamIntensity = bestIntensity;
+            bot.slipstreamDecayTimer = 1.0; // Slingshot dos Bots calibrado para 1 segundo com decaimento gradual
+            bot.slipstreamStoredIntensity = Math.max(bot.slipstreamStoredIntensity || 0, bestIntensity);
+            bot.slipstreamPeakSpeed = Math.max(bot.slipstreamPeakSpeed || 0, bot.speed);
+          }
+        }
+
+        if (!bot.inSlipstream && bot.slipstreamDecayTimer > 0) {
+          bot.slipstreamDecayTimer = Math.max(0, bot.slipstreamDecayTimer - dt);
+          if (bot.slipstreamDecayTimer <= 0) {
+            bot.slipstreamStoredIntensity = 0;
+            bot.slipstreamPeakSpeed = 0;
           }
         }
 
         // Aplica bônus progressivo de vácuo ao bot (velocidade máxima e aceleração)
-        const botSlipInt = bot.slipstreamIntensity || 0;
+        const botSlingshotRatio = Math.max(0, Math.min(1.0, bot.slipstreamDecayTimer / 1.0));
+        const botSlipInt = bot.inSlipstream
+          ? (bot.slipstreamIntensity || 0)
+          : (bot.slipstreamDecayTimer > 0 ? ((bot.slipstreamStoredIntensity || 0.4) * botSlingshotRatio) : 0);
         const botNitroBoostMul = bot.isNitro
           ? 0.30
           : (bot.nitroDecayTimer > 0 ? (0.30 * (bot.nitroDecayTimer / 3.0)) : 0);
+        const botDownhillBonus = Math.max(0, -botSlope * 240);
         const botBaseMax = (bot.isNitro || bot.nitroDecayTimer > 0)
-          ? (bot.model.maxSpeed * (1.0 + botNitroBoostMul))
+          ? (bot.model.maxSpeed * (1.0 + botNitroBoostMul)) + botDownhillBonus
           : baseTargetSpeed;
         const botCatchBonus = (leadCar && leadCar.speed > bot.speed)
           ? (leadCar.speed - bot.speed) * 0.85 * botSlipInt
           : 0;
         const botVacuumTopBoost = ((botBaseMax * 0.22) + 24) * botSlipInt;
         let targetSpeed = botBaseMax + botVacuumTopBoost + botCatchBonus;
+        if (!bot.inSlipstream && bot.slipstreamDecayTimer > 0 && bot.slipstreamPeakSpeed > targetSpeed) {
+          // Diminui gradativamente de volta ao longo de 1 segundo
+          targetSpeed = targetSpeed + (bot.slipstreamPeakSpeed - targetSpeed) * botSlingshotRatio;
+        }
 
-        // Bônus do Nitro ativo do Bot
+        // Bônus do Nitro ativo do Bot (soma com descida de ladeira)
         if (bot.isNitro) {
-          targetSpeed = bot.model.maxSpeed * 1.30;
+          targetSpeed = (bot.model.maxSpeed * 1.30) + botDownhillBonus;
         }
 
         // Inteligência de Uso dos 3 Nitros pelos Bots
@@ -1667,7 +1762,7 @@
           if (botSeg.curve !== 0) {
             const apexX = Math.max(-0.68, Math.min(0.68, -botSeg.curve * 0.22));
             bot.targetX += (apexX - bot.targetX) * 1.4 * dt;
-          } else if (bot.inSlipstream && leadCar && leadDist > 120) {
+          } else if (bot.inSlipstream && leadCar && leadDist > 420) {
             // Em vácuo distante: o bot se posiciona atrás do carro da frente para sugar velocidade!
             bot.targetX += (leadCar.x - bot.targetX) * 2.0 * dt;
           } else {
@@ -1684,19 +1779,19 @@
           bot.bumpBoostTimer -= dt;
         }
 
-        // Manobra inteligente de ultrapassagem / desvio
+        // Manobra inteligente de ultrapassagem / desvio antecipada para evitar batidas
         for (let j = 0; j < this.cars.length; j++) {
           if (i === j) continue;
           const other = this.cars[j];
           const distZ = this.shortestDeltaZ(other.z, bot.z);
-          if (distZ > 0 && distZ < 260 && Math.abs(other.x - bot.x) < 0.40) {
+          if (distZ > 0 && distZ < 450 && Math.abs(other.x - bot.x) < 0.42) {
             blocked = true;
             if (this.raceTimer > 1.6) {
-              // Slingshot: puxa para a lateral livre para ultrapassar
-              const passDir = (other.x > 0) ? -0.44 : 0.44;
+              // Slingshot: puxa para a lateral livre com folga para ultrapassar sem bater
+              const passDir = (other.x > 0) ? -0.46 : 0.46;
               bot.targetX = Math.max(-0.78, Math.min(0.78, other.x + passDir));
             }
-            if (distZ < 100 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
+            if (distZ < 120 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
               targetSpeed = Math.min(targetSpeed, other.speed * 0.94);
             }
             break;
@@ -1710,16 +1805,24 @@
         } else {
           bot.isBraking = false;
           if (bot.speed < targetSpeed) {
-            const nitroAccel = bot.isNitro ? 2.0 : (bot.nitroDecayTimer > 0 ? (1.0 + 1.0 * (bot.nitroDecayTimer / 3.0)) : 1.0);
-            const accelMul = nitroAccel + (1.25 * (bot.slipstreamIntensity || 0));
-            const launchRate = (120 + bot.model.acceleration * 125) * accelMul * dt;
-            const botSuctionPull = (55 + bot.model.acceleration * 70) * (bot.slipstreamIntensity || 0) * dt;
+            const botSpeedRatio = Math.max(0, bot.speed / (bot.model.maxSpeed || 220));
+            const botAirDrag = Math.pow(Math.min(1.0, botSpeedRatio), 1.6) * 0.58;
+            const botTorque = Math.max(0.32, 1.28 - botAirDrag);
+            const nitroAccel = bot.isNitro ? 1.75 : (bot.nitroDecayTimer > 0 ? (1.0 + 0.75 * (bot.nitroDecayTimer / 3.0)) : 1.0);
+            const accelMul = nitroAccel + (1.15 * (bot.slipstreamIntensity || 0));
+            const launchRate = (44 + bot.model.acceleration * 48) * botTorque * accelMul * dt;
+            const botSuctionPull = (40 + bot.model.acceleration * 50) * (bot.slipstreamIntensity || 0) * dt;
             bot.speed = Math.min(bot.speed + launchRate + botSuctionPull, targetSpeed);
           } else if (bot.bumpBoostTimer <= 0 && !bot.isNitro) {
-            const excessDecay = (bot.nitroDecayTimer > 0)
-              ? Math.max(18, (bot.speed - targetSpeed) * 0.90) * dt
-              : (65 * dt);
-            bot.speed = Math.max(targetSpeed, bot.speed - excessDecay);
+            const botExcess = bot.speed - targetSpeed;
+            if (botExcess > 0) {
+              const isSlingshot = (bot.slipstreamDecayTimer > 0);
+              // Desaceleração cadenciada e gradual pós-slingshot para os bots também
+              const excessDecay = isSlingshot
+                ? Math.min(7.5, Math.max(3.2, botExcess * 0.15)) * dt
+                : Math.min(9.0, Math.max(3.8, botExcess * 0.18)) * dt;
+              bot.speed = Math.max(targetSpeed, bot.speed - excessDecay);
+            }
           }
         }
 
@@ -1987,7 +2090,7 @@
             }
           );
         } else {
-          const pos = this.playerRenderPos || { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 38 };
+          const pos = this.playerRenderPos || { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 32 };
           const playerScreenX = pos.x;
           const playerScreenY = pos.y;
 
@@ -2042,7 +2145,7 @@
 
       this.renderParticles(ctx);
 
-      if (this.player && this.state === 'RACING' && (this.player.isNitro || this.player.speed > 135)) {
+      if (this.player && this.state === 'RACING' && (this.player.isNitro || this.player.speed > (this.player.model ? this.player.model.maxSpeed * 0.92 : 200))) {
         this.renderSpeedLines(ctx);
       }
       ctx.restore();
@@ -3049,10 +3152,12 @@
       }
 
       const spd = (!isAttract && this.player) ? this.player.speed : 0;
-      const spdFactor = Math.min(1.0, spd / 300);
-      // Sensação de velocidade: FOV dinâmico reforçado (comprime perspectiva e faz os elementos passarem voando)
-      this.currentCameraDepth = CAMERA_DEPTH * (1.0 - spdFactor * 0.22);
-      const camH = CAMERA_HEIGHT * (1.0 - spdFactor * 0.12);
+      const normalMax = (this.player && this.player.model) ? this.player.model.maxSpeed : 220;
+      const overspeedRatio = Math.max(0, (spd - normalMax) / 70);
+      const spdFactor = Math.min(1.0, (spd / normalMax) * 0.70 + overspeedRatio * 0.30);
+      // Sensação de velocidade: FOV dinâmico suave mantendo a altura da pista e horizonte equilibrados
+      this.currentCameraDepth = CAMERA_DEPTH * (1.0 - spdFactor * 0.12);
+      const camH = CAMERA_HEIGHT * (1.0 - spdFactor * 0.04);
 
       const cameraX = this.finishingRace ? this.finishCameraX : (p.x * ROAD_WIDTH * 0.65);
       const cameraY = this.finishingRace ? this.finishCameraY : (camH + playerWorldY);
@@ -3082,9 +3187,12 @@
         const rawCurveShift = pRoad.x - neutralX;
         this.smoothCurveScreenX += (rawCurveShift - this.smoothCurveScreenX) * 0.35;
         this.smoothRoadY += (pRoad.y - this.smoothRoadY) * 0.45;
+
+        // Avanço suave na aceleração mantendo um espaço agradável entre o para-choque e a margem inferior da tela
+        const speedAdvance = Math.min(6, (spd / normalMax) * 4.5 + overspeedRatio * 2.5);
         this.playerRenderPos = {
           x: neutralX + this.smoothCurveScreenX + pRoad.w * p.x,
-          y: this.smoothRoadY - 24
+          y: this.smoothRoadY - 18 - speedAdvance
         };
       }
 
@@ -4318,30 +4426,89 @@
     }
 
     renderSpeedLines(ctx) {
-      if (!this.player) return;
+      if (!this.player || !this.player.model) return;
       const spd = this.player.speed;
+      const maxSpd = (this.player.model && this.player.model.maxSpeed) ? this.player.model.maxSpeed : 220;
       const isNitro = this.player.isNitro;
-      const spdFactor = Math.min(1.0, Math.max(0, (spd - 135) / 145));
-      if (!isNitro && spdFactor <= 0.02) return;
+      const isOverspeed = (spd > maxSpd + 2);
+      if (!isNitro && !isOverspeed && spd < maxSpd * 0.90) return;
+
+      const pos = this.playerRenderPos || { x: INTERNAL_WIDTH / 2, y: INTERNAL_HEIGHT - 32 };
+      const cx = pos.x;
+      const cy = pos.y;
+      const w = PLAYER_CAR_W;
+      const h = PLAYER_CAR_H;
+
+      const overFactor = Math.min(1.0, isOverspeed ? ((spd - maxSpd) / 45) : ((spd - maxSpd * 0.90) / (maxSpd * 0.10)));
+      const baseAlpha = isNitro ? 0.70 : (isOverspeed ? (0.35 + overFactor * 0.35) : 0.22);
+      const strokeStyleBase = isNitro ? '0, 230, 255' : '255, 255, 255';
+      const steerOffset = (this.player.steerAngle || 0) * 16;
+      const t = performance.now() / 1000;
+      const flowSpeed = Math.max(3.0, (spd / 100) * 4.6);
+
+      // Efeito de vento aerodinâmico partindo diretamente do carro (estilo Need for Speed Carbon)
+      // O vidro traseiro fica 100% limpo em qualquer carro: nenhum feixe passa pelo vidro.
+      // Os feixes centrais iniciam abaixo do vidro traseiro (tampa do motor, placa e difusor).
+      // Os feixes laterais iniciam nos ombros externos e para-lamas, bem afastados da cabine.
+      const streams = [
+        // Feixes laterais externos (completamente fora da cabine / vidro traseiro)
+        { rx: -0.48, ry:  0.12, spread: 0.72, len: 64, phase: 0.35, lw: 1.00 },
+        { rx:  0.48, ry:  0.12, spread: 0.72, len: 64, phase: 0.85, lw: 1.00 },
+        { rx: -0.38, ry:  0.18, spread: 0.58, len: 58, phase: 0.05, lw: 0.90 },
+        { rx:  0.38, ry:  0.18, spread: 0.58, len: 58, phase: 0.55, lw: 0.90 },
+
+        // Feixes centrais (iniciam abaixo do vidro traseiro: tampa do motor, para-choque e difusor)
+        { rx: -0.14, ry:  0.18, spread: 0.22, len: 44, phase: 0.20, lw: 0.70 },
+        { rx:  0.14, ry:  0.18, spread: 0.22, len: 44, phase: 0.70, lw: 0.70 },
+        { rx: -0.06, ry:  0.24, spread: 0.14, len: 40, phase: 0.40, lw: 0.65 },
+        { rx:  0.06, ry:  0.24, spread: 0.14, len: 40, phase: 0.90, lw: 0.65 },
+        { rx: -0.26, ry:  0.30, spread: 0.36, len: 48, phase: 0.10, lw: 0.80 },
+        { rx:  0.26, ry:  0.30, spread: 0.36, len: 48, phase: 0.60, lw: 0.80 },
+      ];
 
       ctx.save();
-      const count = isNitro ? 26 : Math.floor(8 + spdFactor * 16);
-      const alpha = isNitro ? 0.70 : (0.18 + spdFactor * 0.45);
-      const strokeColor = isNitro ? `rgba(0, 229, 255, ${alpha.toFixed(2)})` : `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = isNitro ? 1.7 : (0.8 + spdFactor * 0.9);
+      ctx.lineCap = 'round';
 
-      for (let i = 0; i < count; i++) {
-        const side = (i % 2 === 0) ? -1 : 1;
-        const distFromCenter = 55 + Math.random() * 135;
-        const lx = INTERNAL_WIDTH / 2 + side * distFromCenter;
-        const ly = Math.random() * INTERNAL_HEIGHT;
-        const len = (24 + Math.random() * 52) * (isNitro ? 1.4 : (0.85 + spdFactor * 0.55));
-        ctx.beginPath();
-        ctx.moveTo(lx, ly);
-        ctx.lineTo(lx + side * (12 + spdFactor * 10), ly + len);
-        ctx.stroke();
+      for (let i = 0; i < streams.length; i++) {
+        const s = streams[i];
+        // Ponto de desprendimento do fluxo no próprio carro
+        const startX = cx + s.rx * w;
+        const startY = cy + s.ry * h;
+
+        // Projeção da esteira em perspectiva para trás e ligeiramente para fora
+        const spreadX = (s.rx >= 0 ? 1 : -1) * (w * s.spread * 0.45) - steerOffset;
+        const totalLen = s.len * (isNitro ? 1.35 : (1.0 + overFactor * 0.4));
+        const endX = startX + spreadX;
+        const endY = startY + totalLen;
+
+        // Pulso aerodinâmico contínuo fluindo do carro em direção à esteira
+        const cycle = (t * flowSpeed + s.phase) % 1.0;
+        const segLen = 0.44;
+        const p1 = cycle;
+        const p0 = Math.max(0, cycle - segLen);
+
+        if (p1 > 0.05) {
+          const x0 = startX + (endX - startX) * p0;
+          const y0 = startY + (endY - startY) * p0;
+          const x1 = startX + (endX - startX) * p1;
+          const y1 = startY + (endY - startY) * p1;
+
+          // Gradiente suave para o rastro de ar
+          const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+          const alphaFade = (baseAlpha * (1.0 - p1 * 0.30)).toFixed(2);
+          grad.addColorStop(0, `rgba(${strokeStyleBase}, 0)`);
+          grad.addColorStop(0.65, `rgba(${strokeStyleBase}, ${alphaFade})`);
+          grad.addColorStop(1, `rgba(${strokeStyleBase}, ${(alphaFade * 1.15).toFixed(2)})`);
+
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = s.lw * (isNitro ? 1.25 : 1.0);
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
       }
+
       ctx.restore();
     }
 
@@ -4715,9 +4882,13 @@
         this.renderF1Leaderboard(ctx);
       }
 
-      // --- Indicador Aerodinâmico de Vácuo (Slipstream) ---
-      if (this.player.inSlipstream) {
-        const intensity = Math.min(1.0, this.player.slipstreamIntensity || 0.5);
+      // --- Indicador Aerodinâmico de Vácuo (Slipstream / Slingshot) ---
+      if (this.player.inSlipstream || this.player.slipstreamDecayTimer > 0) {
+        const isSlingshot = !this.player.inSlipstream && this.player.slipstreamDecayTimer > 0;
+        const slingshotRatio = Math.max(0, Math.min(1.0, this.player.slipstreamDecayTimer / 1.0));
+        const intensity = isSlingshot
+          ? Math.max(0.1, slingshotRatio)
+          : Math.min(1.0, this.player.slipstreamIntensity || 0.5);
         const vacX = showF1Tower ? (leftX + 31) : leftX;
         const vacY = topY + 41;
         const vacW = showF1Tower ? 56 : 74;
@@ -4727,19 +4898,24 @@
         ctx.fillRect(vacX + 0.8, vacY + 0.8, vacW, vacH);
         ctx.fillStyle = 'rgba(8, 16, 26, 0.85)';
         ctx.fillRect(vacX, vacY, vacW, vacH);
-        ctx.strokeStyle = '#00E5FF';
+        ctx.strokeStyle = isSlingshot ? '#FFD700' : '#00E5FF';
         ctx.lineWidth = 0.8;
         ctx.strokeRect(vacX, vacY, vacW, vacH);
 
         const fillW = Math.max(2, (vacW - 3) * intensity);
         const vacGrad = ctx.createLinearGradient(vacX + 1.5, 0, vacX + vacW - 1.5, 0);
-        vacGrad.addColorStop(0, '#00E5FF');
-        vacGrad.addColorStop(1, '#00FF66');
+        if (isSlingshot) {
+          vacGrad.addColorStop(0, '#FFD700');
+          vacGrad.addColorStop(1, '#FF7A00');
+        } else {
+          vacGrad.addColorStop(0, '#00E5FF');
+          vacGrad.addColorStop(1, '#00FF66');
+        }
         ctx.fillStyle = vacGrad;
         ctx.fillRect(vacX + 1.5, vacY + 1.5, fillW, vacH - 3);
 
-        const pct = Math.max(5, Math.round(intensity * 100));
-        drawPixelText(`▲ VÁCUO ${pct}%`, vacX + vacW / 2, vacY + 6.2, '#FFFFFF', 'bold 5px monospace', 'center');
+        const label = isSlingshot ? '⚡ SLINGSHOT' : `▲ VÁCUO ${Math.max(5, Math.round(intensity * 100))}%`;
+        drawPixelText(label, vacX + vacW / 2, vacY + 6.2, '#FFFFFF', 'bold 5px monospace', 'center');
       }
 
       // ========================================================
@@ -5102,100 +5278,320 @@
     }
 
     renderMenu(ctx) {
-      const touchSafe = this.input.touchControlsVisible;
       const now = performance.now();
+      const touchSafe = this.input.touchControlsVisible;
+      const cx = INTERNAL_WIDTH / 2;
 
-      // Vinheta translúcida sobre a pista 3D ao vivo ao fundo
-      const bgGrad = ctx.createLinearGradient(0, 0, 0, INTERNAL_HEIGHT);
-      bgGrad.addColorStop(0, 'rgba(4, 7, 16, 0.88)');
-      bgGrad.addColorStop(0.5, 'rgba(5, 10, 22, 0.68)');
-      bgGrad.addColorStop(1, 'rgba(3, 5, 12, 0.92)');
-      ctx.fillStyle = bgGrad;
+      // 1. VINHETA ATMOSFÉRICA PÔR DO SOL / RETRÔ ARCADE SOBRE A PISTA 3D AO VIVO
+      // A pista 3D ao vivo e o horizonte continuam 100% visíveis e correndo dinamicamente ao fundo
+      const vignetteGrad = ctx.createLinearGradient(0, 0, 0, INTERNAL_HEIGHT);
+      vignetteGrad.addColorStop(0, 'rgba(25, 10, 45, 0.40)');
+      vignetteGrad.addColorStop(0.48, 'rgba(255, 110, 30, 0.12)');
+      vignetteGrad.addColorStop(0.62, 'rgba(0, 0, 0, 0.05)');
+      vignetteGrad.addColorStop(1, 'rgba(12, 6, 22, 0.52)');
+      ctx.fillStyle = vignetteGrad;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
 
       ctx.save();
-      ctx.textAlign = 'center';
 
       // =========================================================================
-      // NOME DO JOGO CENTRALIZADO NA PRIMEIRA TELA (SEM OS 4 CARROS)
+      // 2. LOGOTIPO RETRÔ 16-BIT "LH44" (ESTILO SUPER NINTENDO / TOP GEAR / OUTRUN)
       // =========================================================================
-      const logoY = touchSafe ? 68 : 74;
+      const logoCenterY = touchSafe ? 54 : 60;
 
-      // Glow sutil por trás do logotipo
-      const glowGrad = ctx.createRadialGradient(INTERNAL_WIDTH / 2, logoY - 2, 4, INTERNAL_WIDTH / 2, logoY - 2, 90);
-      glowGrad.addColorStop(0, 'rgba(0, 229, 255, 0.22)');
-      glowGrad.addColorStop(0.6, 'rgba(255, 60, 0, 0.12)');
-      glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = glowGrad;
+      // Halo / Resplendor solar do pôr do sol atrás do logotipo
+      const sunGlow = ctx.createRadialGradient(cx, logoCenterY, 4, cx, logoCenterY, 95);
+      sunGlow.addColorStop(0, 'rgba(255, 235, 130, 0.35)');
+      sunGlow.addColorStop(0.4, 'rgba(255, 95, 30, 0.20)');
+      sunGlow.addColorStop(0.8, 'rgba(170, 30, 90, 0.08)');
+      sunGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = sunGlow;
       ctx.beginPath();
-      ctx.arc(INTERNAL_WIDTH / 2, logoY - 2, 90, 0, Math.PI * 2);
+      ctx.arc(cx, logoCenterY, 95, 0, Math.PI * 2);
       ctx.fill();
 
-      // Logotipo Arcade LH44 com sombra dupla épica
-      ctx.font = touchSafe ? 'bold 36px monospace' : 'bold 44px monospace';
-      ctx.fillStyle = '#FF3C00';
-      ctx.fillText('LH44', INTERNAL_WIDTH / 2 + 3, logoY + 3);
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillText('LH44', INTERNAL_WIDTH / 2, logoY);
+      // Medição precisa da tipografia para centralização 100% simétrica
+      const fontSize = touchSafe ? 34 : 38;
+      ctx.font = 'italic 900 ' + fontSize + 'px "Arial Black", Impact, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
 
-      // Subtítulo dourado com estrelas
-      ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 9.5px monospace' : 'bold 11.5px monospace';
-      ctx.fillText('★ LOW TO HIGH SPEED ★', INTERNAL_WIDTH / 2, logoY + (touchSafe ? 17 : 20));
+      const lhText = 'LH';
+      const numText = '44';
+      const gap = 2;
+      const lhMetrics = ctx.measureText(lhText);
+      const numMetrics = ctx.measureText(numText);
+      const totalWidth = lhMetrics.width + gap + numMetrics.width;
 
-      // Linha decorativa de neon
-      const lineW = touchSafe ? 160 : 210;
-      const lineY = logoY + (touchSafe ? 24 : 28);
-      const lineGrad = ctx.createLinearGradient(INTERNAL_WIDTH / 2 - lineW / 2, 0, INTERNAL_WIDTH / 2 + lineW / 2, 0);
-      lineGrad.addColorStop(0, 'rgba(0, 229, 255, 0)');
-      lineGrad.addColorStop(0.5, 'rgba(0, 229, 255, 0.85)');
-      lineGrad.addColorStop(1, 'rgba(0, 229, 255, 0)');
-      ctx.fillStyle = lineGrad;
-      ctx.fillRect(INTERNAL_WIDTH / 2 - lineW / 2, lineY, lineW, 1.5);
+      // 2.1 ASAS DE BANDEIRA QUADRICULADA NAS LATERAIS DO LOGO
+      const drawCheckeredWing = (baseX, baseY, dir) => {
+        const rows = 4;
+        const cols = 6;
+        const sq = 4.2;
+        const slant = -0.28;
+        ctx.save();
+        ctx.translate(baseX, baseY);
+        ctx.transform(1, 0, slant, 1, 0, 0);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const isWingEdge = (dir < 0) ? (c < rows - 1 - r) : (c > r + (cols - rows));
+            if (isWingEdge) continue;
+            const isDark = (r + c) % 2 === 0;
+            if (isDark) {
+              ctx.fillStyle = (r === 0) ? '#8A0F2E' : (r === 3 ? '#160824' : '#C4183C');
+            } else {
+              ctx.fillStyle = (r === 0) ? '#FFF0F5' : '#ECEFF1';
+            }
+            ctx.fillRect(dir * c * sq, (r - rows / 2) * sq, sq - 0.4, sq - 0.4);
+          }
+        }
+        ctx.restore();
+      };
 
-      // BOTÃO DE CONFIRMAR / INICIAR JOGO CENTRALIZADO
-      const btnW = touchSafe ? 174 : 204;
-      const btnH = touchSafe ? 22 : 25;
-      const btnX = Math.round(INTERNAL_WIDTH / 2 - btnW / 2);
-      const btnY = touchSafe ? 116 : 124;
-      const blink = Math.floor(now / 380) % 2 === 0;
+      const wingOffset = totalWidth / 2 + 6;
+      drawCheckeredWing(cx - wingOffset, logoCenterY - 2, -1);
+      drawCheckeredWing(cx + wingOffset, logoCenterY - 2, 1);
 
-      const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-      btnGrad.addColorStop(0, blink ? '#00E5FF' : '#00B0FF');
-      btnGrad.addColorStop(1, blink ? '#0091EA' : '#005F9E');
-      ctx.fillStyle = btnGrad;
-      ctx.fillRect(btnX, btnY, btnW, btnH);
-      ctx.strokeStyle = blink ? '#FFFFFF' : '#FFD700';
-      ctx.lineWidth = 1.4;
-      ctx.strokeRect(btnX, btnY, btnW, btnH);
+      // 2.2 LETRAS 3D CROMO "LH" E FOGO "44"
+      ctx.save();
+      ctx.translate(cx, logoCenterY);
+      ctx.transform(1, 0, -0.20, 1, 0, 0); // Slant de corrida anos 90
 
-      ctx.fillStyle = '#040914';
-      ctx.font = touchSafe ? 'bold 9.5px monospace' : 'bold 11px monospace';
-      const enterIcon = this.input.gamepadConnected ? '[A]' : (touchSafe ? '[3]' : '[ENTER]');
-      ctx.fillText(`▶ INICIAR JOGO ${enterIcon}`, btnX + btnW / 2, btnY + btnH / 2 + 3.5);
+      ctx.font = 'italic 900 ' + fontSize + 'px "Arial Black", Impact, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
 
-      // Status do controle / joystick e dicas de comando
-      if (this.input.gamepadConnected) {
-        ctx.fillStyle = '#00E5FF';
-        ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
-        ctx.fillText('🎮 CONTROLE RECONHECIDO NATIVAMENTE', INTERNAL_WIDTH / 2, btnY + btnH + 15);
-      } else {
-        ctx.fillStyle = '#B0BEC5';
-        ctx.font = touchSafe ? '7px monospace' : '8px monospace';
-        ctx.fillText('TOQUE NO BOTÃO OU PRESSIONE [ENTER] / [A] PARA ENTRAR', INTERNAL_WIDTH / 2, btnY + btnH + 15);
+      const startX = -totalWidth / 2;
+      const lhX = startX;
+      const numX = startX + lhMetrics.width + gap;
+
+      // 2.2.1 PROFUNDIDADE 3D / SOMBRA RETRÔ (EXTRUSÃO EM CAMADAS)
+      const depth = 4;
+      for (let d = depth; d >= 1; d--) {
+        const offX = d * 0.9;
+        const offY = d * 1.1;
+        ctx.fillStyle = (d === depth) ? '#02040A' : '#0B132B';
+        ctx.fillText(lhText, lhX + offX, offY);
+        ctx.fillStyle = (d === depth) ? '#1A0202' : '#4A0808';
+        ctx.fillText(numText, numX + offX, offY);
       }
 
-      ctx.fillStyle = '#78909C';
-      ctx.font = touchSafe ? '6.5px monospace' : '7.5px monospace';
-      const hintText = touchSafe
-        ? 'JOYSTICK / CRUZ: VIRAR | [3]/[A]: ACELERA | [2]/[B]: FREIA | [1]/[X]: NITRO'
-        : 'SETAS / GAMEPAD: DIRIGIR | [ENTER]/[A]: CONFIRMAR | [ESPAÇO]/[X]: NITRO | [ESC]: PAUSA';
-      ctx.fillText(hintText, INTERNAL_WIDTH / 2, touchSafe ? 174 : 188);
+      // 2.2.2 BORDA EXTERNA GROSSA
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'miter';
+      ctx.strokeStyle = '#050711';
+      ctx.strokeText(lhText, lhX, 0);
+      ctx.strokeStyle = '#180404';
+      ctx.strokeText(numText, numX, 0);
 
-      // Rodapé da tela inicial
-      ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 6.5px monospace' : 'bold 7.5px monospace';
-      ctx.fillText('Desenvolvido por Leandro Yata - 2026 - (75) 99190-2534', INTERNAL_WIDTH / 2, touchSafe ? 193 : 206);
+      // 2.2.3 PREENCHIMENTO DO "LH" EM CROMO METÁLICO
+      const lhGrad = ctx.createLinearGradient(0, -fontSize * 0.45, 0, fontSize * 0.45);
+      lhGrad.addColorStop(0.00, '#FFFFFF');
+      lhGrad.addColorStop(0.20, '#F0F9FF');
+      lhGrad.addColorStop(0.42, '#B0D8F0');
+      lhGrad.addColorStop(0.48, '#4A7A96');
+      lhGrad.addColorStop(0.52, '#FFFFFF');
+      lhGrad.addColorStop(0.68, '#27445C');
+      lhGrad.addColorStop(0.90, '#102334');
+      lhGrad.addColorStop(1.00, '#091522');
+      ctx.fillStyle = lhGrad;
+      ctx.fillText(lhText, lhX, 0);
+
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.strokeText(lhText, lhX, 0);
+
+      // 2.2.4 PREENCHIMENTO DO "44" EM DEGRADÊ DE VELOCIDADE
+      const numGrad = ctx.createLinearGradient(0, -fontSize * 0.45, 0, fontSize * 0.45);
+      numGrad.addColorStop(0.00, '#FFF59D');
+      numGrad.addColorStop(0.22, '#FFB300');
+      numGrad.addColorStop(0.48, '#FF5722');
+      numGrad.addColorStop(0.78, '#D50000');
+      numGrad.addColorStop(1.00, '#7F0000');
+      ctx.fillStyle = numGrad;
+      ctx.fillText(numText, numX, 0);
+
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = 'rgba(255, 240, 160, 0.8)';
+      ctx.strokeText(numText, numX, 0);
+
+      ctx.restore();
+
+      // 2.3 SLOGAN BANNER: "LOW TO HIGH SPEED" COM FAIXAS DE VELOCIDADE
+      const sloganY = logoCenterY + (touchSafe ? 22 : 25);
+      const sloganText = 'LOW TO HIGH SPEED';
+
+      ctx.font = 'italic bold 7.5px "Trebuchet MS", Arial, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const sloganW = ctx.measureText(sloganText).width;
+
+      const drawSpeedStripes = (xStart, xEnd, y) => {
+        const stripeGrad = ctx.createLinearGradient(xStart, y, xEnd, y);
+        stripeGrad.addColorStop(0, 'rgba(235, 30, 45, 0)');
+        stripeGrad.addColorStop(0.3, 'rgba(235, 30, 45, 0.8)');
+        stripeGrad.addColorStop(1, 'rgba(255, 75, 45, 1)');
+        ctx.fillStyle = stripeGrad;
+        ctx.fillRect(Math.min(xStart, xEnd), y - 0.8, Math.abs(xEnd - xStart), 1.6);
+        ctx.fillRect(Math.min(xStart, xEnd) + (xStart < xEnd ? 5 : -5), y + 2.2, Math.abs(xEnd - xStart) - 5, 1.0);
+      };
+
+      drawSpeedStripes(cx - sloganW / 2 - 24, cx - sloganW / 2 - 4, sloganY);
+      drawSpeedStripes(cx + sloganW / 2 + 24, cx + sloganW / 2 + 4, sloganY);
+
+      ctx.fillStyle = '#160404';
+      ctx.fillText(sloganText, cx + 0.8, sloganY + 0.8);
+      ctx.fillStyle = '#FFD54F';
+      ctx.fillText(sloganText, cx, sloganY);
+
+      // =========================================================================
+      // 3. BOTÃO DE INICIAR RETRÔ 16-BIT (ESTILO ARCADES E SUPER NINTENDO)
+      // =========================================================================
+      const btnW = touchSafe ? 144 : 156;
+      const btnH = touchSafe ? 22 : 24;
+      const btnX = Math.round(cx - btnW / 2);
+      const btnY = touchSafe ? 116 : 124;
+      const slant = 6;
+
+      let isHovered = false;
+      const mPos = this.input ? (this.input.mouseCanvasPos || this.input.mousePos) : null;
+      if (mPos) {
+        const mx = mPos.x;
+        const my = mPos.y;
+        if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
+          isHovered = true;
+        }
+      }
+
+      const drawSlantedBox = (x, y, w, h, s) => {
+        ctx.beginPath();
+        ctx.moveTo(x + s + 2.5, y);
+        ctx.lineTo(x + w + s - 2.5, y);
+        ctx.quadraticCurveTo(x + w + s, y, x + w + s - 1, y + 2);
+        ctx.lineTo(x + w + 1, y + h - 2);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - 2.5, y + h);
+        ctx.lineTo(x + 2.5, y + h);
+        ctx.quadraticCurveTo(x, y + h, x + 1, y + h - 2);
+        ctx.lineTo(x + s - 1, y + 2);
+        ctx.quadraticCurveTo(x + s, y, x + s + 2.5, y);
+        ctx.closePath();
+      };
+
+      // 3.1 Sombra projetada do botão no asfalto
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      drawSlantedBox(btnX + 1.5, btnY + 2.2, btnW, btnH, slant);
+      ctx.fill();
+
+      // 3.2 Glow / Pulso dourado de atração
+      const pulse = 0.35 + 0.25 * Math.sin(now * 0.007);
+      ctx.strokeStyle = `rgba(255, 230, 0, ${isHovered ? 0.9 : pulse})`;
+      ctx.lineWidth = isHovered ? 3.5 : 2.5;
+      drawSlantedBox(btnX, btnY, btnW, btnH, slant);
+      ctx.stroke();
+
+      // 3.3 Preenchimento em degradê dourado / laranja de corrida
+      const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+      if (isHovered) {
+        btnGrad.addColorStop(0.0, '#FFFF8D');
+        btnGrad.addColorStop(0.35, '#FFE082');
+        btnGrad.addColorStop(0.70, '#FFA726');
+        btnGrad.addColorStop(1.0, '#F57C00');
+      } else {
+        btnGrad.addColorStop(0.0, '#FFF176');
+        btnGrad.addColorStop(0.32, '#FFCA28');
+        btnGrad.addColorStop(0.68, '#FF9800');
+        btnGrad.addColorStop(1.0, '#E65100');
+      }
+      ctx.fillStyle = btnGrad;
+      drawSlantedBox(btnX, btnY, btnW, btnH, slant);
+      ctx.fill();
+
+      // 3.4 Chanfro interno de luz e sombra (Bevel 3D)
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = isHovered ? '#FFFFFF' : '#FFF9C4';
+      drawSlantedBox(btnX + 1.0, btnY + 1.0, btnW - 2.0, btnH - 2.0, slant);
+      ctx.stroke();
+
+      // 3.5 Contorno externo escuro de acabamento arcade
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#1B0800';
+      drawSlantedBox(btnX, btnY, btnW, btnH, slant);
+      ctx.stroke();
+
+      // 3.6 Ícone pixel art da bandeira quadriculada no botão
+      const flagX = btnX + 16;
+      const flagY = Math.round(btnY + (btnH - 10) / 2);
+      const fsq = 2.4;
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 4; c++) {
+          ctx.fillStyle = ((r + c) % 2 === 0) ? '#FFFFFF' : '#140800';
+          ctx.fillRect(flagX + c * fsq, flagY + r * fsq, fsq, fsq);
+        }
+      }
+      ctx.strokeStyle = '#140800';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(flagX - 0.4, flagY - 0.4, 4 * fsq + 0.8, 3 * fsq + 0.8);
+
+      // 3.7 Texto "INICIAR"
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'italic 900 10.5px monospace';
+      const textX = btnX + btnW / 2 + 6;
+      const textY = btnY + btnH / 2 + 0.5;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillText('INICIAR', textX, textY - 0.7);
+      ctx.fillStyle = '#100500';
+      ctx.fillText('INICIAR', textX, textY);
+
+      // 3.8 Pointers luminosos animados (► e ◄)
+      const arrowFlash = Math.floor(now / 220) % 2 === 0;
+      if (arrowFlash || isHovered) {
+        ctx.font = 'bold 8.5px monospace';
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText('►', btnX - 7, textY);
+        ctx.fillText('◄', btnX + btnW + slant + 5, textY);
+      }
+
+      // 3.9 Dica de controle abaixo do botão
+      const hintY = btnY + btnH + 14;
+      if (this.input.gamepadConnected) {
+        ctx.fillStyle = '#00E5FF';
+        ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.5px monospace';
+        ctx.fillText('🎮 CONTROLE RECONHECIDO NATIVAMENTE', cx, hintY);
+      } else {
+        ctx.fillStyle = '#B0BEC5';
+        ctx.font = touchSafe ? '6.5px monospace' : '7.2px monospace';
+        ctx.fillText('TOQUE NO BOTÃO OU PRESSIONE [ENTER] / [A]', cx, hintY);
+      }
+
+      // =========================================================================
+      // 4. CRÉDITOS DO DESENVOLVEDOR NO RODAPÉ
+      // =========================================================================
+      const creditsY = touchSafe ? 194 : 204;
+      const creditsText = 'Desenvolvido por Leandro Yata - 2026 - (75) 99190-2534';
+
+      ctx.font = 'bold 6.2px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const creditW = ctx.measureText(creditsText).width;
+
+      const cGradL = ctx.createLinearGradient(cx - creditW / 2 - 25, creditsY, cx - creditW / 2 - 4, creditsY);
+      cGradL.addColorStop(0, 'rgba(255, 180, 0, 0)');
+      cGradL.addColorStop(1, 'rgba(255, 180, 0, 0.8)');
+      ctx.fillStyle = cGradL;
+      ctx.fillRect(cx - creditW / 2 - 25, creditsY - 0.5, 21, 1.0);
+
+      const cGradR = ctx.createLinearGradient(cx + creditW / 2 + 4, creditsY, cx + creditW / 2 + 25, creditsY);
+      cGradR.addColorStop(0, 'rgba(255, 180, 0, 0.8)');
+      cGradR.addColorStop(1, 'rgba(255, 180, 0, 0)');
+      ctx.fillStyle = cGradR;
+      ctx.fillRect(cx + creditW / 2 + 4, creditsY - 0.5, 21, 1.0);
+
+      ctx.fillStyle = '#060410';
+      ctx.fillText(creditsText, cx + 0.5, creditsY + 0.5);
+      ctx.fillStyle = '#FFD54F';
+      ctx.fillText(creditsText, cx, creditsY);
 
       ctx.restore();
     }
@@ -5227,7 +5623,7 @@
           badge: 'TEMPORADA COMPLETA',
           color: '#FFD700',
           lines: [
-            '• 3 ETAPAS OFICIAIS',
+            `• ${TRACK_DEFINITIONS.length} ETAPAS (FINAL EM SP)`,
             '• PONTUAÇÃO F1 (1º AO 10º)',
             '• DISPUTA DO TÍTULO & PÓDIO'
           ],
@@ -6119,12 +6515,12 @@
         ctx.strokeRect(btnS.x, btnS.y, btnS.w, btnS.h);
         ctx.fillStyle = '#060D1A';
         ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9.5px monospace';
-        ctx.fillText('▶ INICIAR CORRIDA [A]', btnS.x + btnS.w / 2, btnS.y + btnS.h / 2 + 3);
+        ctx.fillText('CONFIRMAR [A] ▶', btnS.x + btnS.w / 2, btnS.y + btnS.h / 2 + 3);
       }
 
       ctx.fillStyle = '#90A4AE';
       ctx.font = touchSafe ? '6.3px monospace' : '7.5px monospace';
-      ctx.fillText(touchSafe ? '[3]/[A] LARGAR | [2]/[B] VOLTAR | D-PAD/TOQUE NAVEGA' : '[ENTER]/[A] LARGAR CORRIDA | [ESC]/[B] VOLTAR | D-PAD SELECIONA', INTERNAL_WIDTH / 2, L.hintY);
+      ctx.fillText(touchSafe ? '[3]/[A] CONFIRMAR | [2]/[B] VOLTAR | D-PAD/TOQUE NAVEGA' : '[ENTER]/[A] CONFIRMAR | [ESC]/[B] VOLTAR | D-PAD SELECIONA', INTERNAL_WIDTH / 2, L.hintY);
       ctx.restore();
     }
 
@@ -6211,9 +6607,11 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFD700';
       ctx.font = touchSafe ? 'bold 10.5px monospace' : 'bold 12px monospace';
+      const totalStages = (this.seasonSchedule && this.seasonSchedule.length) ? this.seasonSchedule.length : TRACK_DEFINITIONS.length;
+      const currentStageNum = (this.seasonStage !== undefined ? this.seasonStage : 0) + 1;
       const resultTitle = (this.gameMode === 'QUICK_RACE')
         ? `🏁 BANDEIRADA — CORRIDA RÁPIDA (${def.name})`
-        : `🏁 BANDEIRADA FINAL — ${def.name}`;
+        : `🏁 ETAPA ${currentStageNum}/${totalStages} — ${def.name}`;
       ctx.fillText(resultTitle, INTERNAL_WIDTH / 2, 16);
 
       ctx.fillStyle = '#00E5FF';
@@ -6332,7 +6730,9 @@
         if (this.gameMode === 'QUICK_RACE') {
           nextPrompt = touchSafe ? 'TOQUE / [3] — VOLTAR AO MENU' : 'PRESSIONE [ENTER] PARA VOLTAR AO MENU';
         } else {
-          const hasNext = (this.trackIndex < TRACK_DEFINITIONS.length - 1);
+          const hasNext = (this.seasonSchedule && this.seasonSchedule.length > 0)
+            ? (this.seasonStage < this.seasonSchedule.length - 1)
+            : (this.trackIndex < TRACK_DEFINITIONS.length - 1);
           nextPrompt = touchSafe
             ? (hasNext ? 'TOQUE / [3] — PRÓXIMA ETAPA' : 'TOQUE / [3] — PÓDIO FINAL')
             : (hasNext ? 'PRESSIONE [ENTER] PARA A PRÓXIMA ETAPA' : 'PRESSIONE [ENTER] PARA VER O GRANDE PÓDIO E CAMPEÃO');
