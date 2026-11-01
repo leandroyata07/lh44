@@ -4346,25 +4346,23 @@
     renderHUD(ctx) {
       ctx.save();
       const touchHud = this.input.touchControlsVisible;
-      const topY = 6;
-      const clusterH = 58;
+      const topY = 8;
+
+      // Helper para renderizar textos direto na tela com sombra pixel arcade preta (estilo Top Gear 2)
+      const drawPixelText = (text, x, y, color, font, align = 'left') => {
+        ctx.font = font;
+        ctx.textAlign = align;
+        ctx.fillStyle = '#000000';
+        ctx.fillText(text, x + 1, y + 1);
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
+      };
 
       // ========================================================
-      // 1. LADO ESQUERDO SUPERIOR (INSPIRADO NO TOP GEAR 2)
+      // 1. LADO ESQUERDO SUPERIOR (DIRETO NA TELA - ESTILO TOP GEAR 2)
       // Tacômetro em Arco, Velocidade KM/H, Nitro N2O e Marchas
       // ========================================================
-      const leftX = 7;
-      const leftW = 114;
-
-      // Fundo do Cluster Esquerdo
-      ctx.fillStyle = 'rgba(10, 15, 26, 0.88)';
-      ctx.fillRect(leftX, topY, leftW, clusterH);
-      ctx.strokeStyle = this.player.isNitro ? '#00E5FF' : 'rgba(0, 229, 255, 0.45)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(leftX, topY, leftW, clusterH);
-      // Destaque superior em neon
-      ctx.fillStyle = this.player.isNitro ? '#80F8FF' : '#00E5FF';
-      ctx.fillRect(leftX, topY, leftW, 1.5);
+      const leftX = 8;
 
       // --- Tacômetro Curvado de Velocidade/RPM estilo Top Gear 2 ---
       const segCount = 14;
@@ -4374,12 +4372,22 @@
 
       for (let i = 0; i < segCount; i++) {
         const t = i / (segCount - 1);
-        // Curva ascendente para a direita
-        const sx = leftX + 6 + i * 4.6;
-        const sy = topY + 18 - Math.sin(t * Math.PI * 0.5) * 9.5;
-        const sw = 3.6;
-        const sh = 7.0;
-        const skew = 1.3;
+        // Curva ascendente sutil para a direita
+        const sx = leftX + i * 3.3;
+        const sy = topY + 12 - Math.sin(t * Math.PI * 0.5) * 6.5;
+        const sw = 2.4;
+        const sh = 4.8;
+        const skew = 1.0;
+
+        // Sombra preta de 1px atrás do segmento
+        ctx.beginPath();
+        ctx.moveTo(sx + skew + 0.8, sy + 0.8);
+        ctx.lineTo(sx + sw + skew + 0.8, sy + 0.8);
+        ctx.lineTo(sx + sw + 0.8, sy + sh + 0.8);
+        ctx.lineTo(sx + 0.8, sy + sh + 0.8);
+        ctx.closePath();
+        ctx.fillStyle = '#000000';
+        ctx.fill();
 
         ctx.beginPath();
         ctx.moveTo(sx + skew, sy);
@@ -4395,49 +4403,42 @@
           else if (i >= 4) fillCol = '#00E676';
           ctx.fillStyle = fillCol;
           ctx.fill();
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
         } else {
-          ctx.fillStyle = 'rgba(18, 24, 38, 0.85)';
+          ctx.fillStyle = 'rgba(26, 36, 52, 0.72)';
           ctx.fill();
-          ctx.strokeStyle = 'rgba(50, 68, 92, 0.35)';
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
         }
       }
 
-      // --- Velocidade Digital + KM/H ---
+      // --- Velocidade Digital + KM/H (sem 888 de fundo) ---
       const spdVal = String(Math.floor(this.player.speed));
-      const numX = leftX + 107;
-      ctx.textAlign = 'right';
+      const numX = leftX + 68;
 
-      // Fundo fantasma retrô 888
-      ctx.font = 'bold 14px monospace';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.fillText('888', numX, topY + 16);
-
-      // Dígitos ativos de velocidade
-      ctx.fillStyle = this.player.isNitro ? '#80F8FF' : '#FFFFFF';
-      ctx.fillText(spdVal, numX, topY + 16);
+      // Dígitos de velocidade real com sombra
+      const spdColor = this.player.isNitro ? '#80F8FF' : '#FFFFFF';
+      drawPixelText(spdVal, numX, topY + 11, spdColor, 'bold 10px monospace', 'right');
 
       // Badge KM/H
-      ctx.font = 'bold 6.5px monospace';
-      ctx.fillStyle = '#FF5252';
-      ctx.fillText('KM/H', numX, topY + 23);
+      drawPixelText('KM/H', numX, topY + 17, '#FF4444', 'bold 4.8px monospace', 'right');
 
       // --- Cargas de Nitro N2O estilo Top Gear 2 ---
-      const nitroY = topY + 28;
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 7px monospace';
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillText('NITRO', leftX + 6, nitroY + 6.5);
+      const nitroY = topY + 22;
+      drawPixelText('NITRO', leftX, nitroY + 4.5, '#00E5FF', 'bold 5px monospace', 'left');
 
       for (let n = 0; n < 3; n++) {
-        const bx = leftX + 38 + n * 24;
-        const bw = 20;
-        const bh = 7;
-        const skewN = 2.0;
+        const bx = leftX + 24 + n * 17;
+        const bw = 14;
+        const bh = 4.6;
+        const skewN = 1.4;
+
+        // Sombra preta atrás do cartucho
+        ctx.beginPath();
+        ctx.moveTo(bx + skewN + 0.8, nitroY + 0.8);
+        ctx.lineTo(bx + bw + skewN + 0.8, nitroY + 0.8);
+        ctx.lineTo(bx + bw + 0.8, nitroY + bh + 0.8);
+        ctx.lineTo(bx + 0.8, nitroY + bh + 0.8);
+        ctx.closePath();
+        ctx.fillStyle = '#000000';
+        ctx.fill();
 
         ctx.beginPath();
         ctx.moveTo(bx + skewN, nitroY);
@@ -4445,39 +4446,39 @@
         ctx.lineTo(bx + bw, nitroY + bh);
         ctx.lineTo(bx, nitroY + bh);
         ctx.closePath();
-        ctx.fillStyle = '#141A26';
+        ctx.fillStyle = '#111622';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(0, 229, 255, 0.35)';
+        ctx.strokeStyle = '#000000';
         ctx.lineWidth = 0.8;
         ctx.stroke();
 
         if (n < this.player.nitroCharges) {
           ctx.beginPath();
-          ctx.moveTo(bx + skewN + 1, nitroY + 1);
-          ctx.lineTo(bx + bw + skewN - 1, nitroY + 1);
-          ctx.lineTo(bx + bw - 1, nitroY + bh - 1);
-          ctx.lineTo(bx + 1, nitroY + bh - 1);
+          ctx.moveTo(bx + skewN + 0.6, nitroY + 0.6);
+          ctx.lineTo(bx + bw + skewN - 0.6, nitroY + 0.6);
+          ctx.lineTo(bx + bw - 0.6, nitroY + bh - 0.6);
+          ctx.lineTo(bx + 0.6, nitroY + bh - 0.6);
           ctx.closePath();
           ctx.fillStyle = '#00E5FF';
           ctx.fill();
 
           ctx.beginPath();
-          ctx.moveTo(bx + skewN + 1.5, nitroY + 1.2);
-          ctx.lineTo(bx + bw + skewN - 1.5, nitroY + 1.2);
-          ctx.lineTo(bx + bw - 0.5, nitroY + 2.8);
-          ctx.lineTo(bx + 1.5, nitroY + 2.8);
+          ctx.moveTo(bx + skewN + 1, nitroY + 0.8);
+          ctx.lineTo(bx + bw + skewN - 1, nitroY + 0.8);
+          ctx.lineTo(bx + bw - 0.5, nitroY + 1.8);
+          ctx.lineTo(bx + 1, nitroY + 1.8);
           ctx.closePath();
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
           ctx.fill();
         } else if (n === this.player.nitroCharges && this.player.isNitro) {
           const burnRatio = Math.max(0, this.player.nitroTimer / 2.4);
-          const curW = (bw - 2) * burnRatio;
-          if (curW > 1) {
+          const curW = (bw - 1.2) * burnRatio;
+          if (curW > 0.8) {
             ctx.beginPath();
-            ctx.moveTo(bx + skewN + 1, nitroY + 1);
-            ctx.lineTo(bx + curW + skewN, nitroY + 1);
-            ctx.lineTo(bx + curW, nitroY + bh - 1);
-            ctx.lineTo(bx + 1, nitroY + bh - 1);
+            ctx.moveTo(bx + skewN + 0.6, nitroY + 0.6);
+            ctx.lineTo(bx + curW + skewN, nitroY + 0.6);
+            ctx.lineTo(bx + curW, nitroY + bh - 0.6);
+            ctx.lineTo(bx + 0.6, nitroY + bh - 0.6);
             ctx.closePath();
             ctx.fillStyle = (Math.floor(performance.now() / 80) % 2 === 0) ? '#FFFFFF' : '#80F8FF';
             ctx.fill();
@@ -4486,142 +4487,112 @@
       }
 
       // --- Linha de Marchas estilo Top Gear 2 ---
-      const gearY = topY + 41;
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 6.5px monospace';
-      ctx.fillStyle = '#FFD700';
-      ctx.fillText('CAMBIO', leftX + 6, gearY + 9);
+      const gearY = topY + 31;
+      drawPixelText('CAMBIO', leftX, gearY + 6.5, '#FFD700', 'bold 5px monospace', 'left');
 
       const gears = ['R', '1', '2', '3', '4', '5', '6'];
       const curGear = this.player.currentGear || 1;
       const isRev = (this.player.speed < 0);
 
       for (let g = 0; g < gears.length; g++) {
-        const gx = leftX + 40 + g * 10;
+        const gx = leftX + 27 + g * 7.4;
         const gLabel = gears[g];
         const isActive = isRev ? (gLabel === 'R') : (gLabel === String(curGear));
 
         if (isActive) {
+          // Sombra da pílula
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(gx - 1.5, gearY + 0.5, 6.5, 7.5);
+          // Pílula neon ativa
           ctx.fillStyle = '#00E5FF';
-          ctx.fillRect(gx - 2, gearY + 1, 9, 10);
+          ctx.fillRect(gx - 2, gearY, 6.5, 7.5);
           ctx.fillStyle = '#041019';
-          ctx.font = 'bold 7.5px monospace';
+          ctx.font = 'bold 5.2px monospace';
           ctx.textAlign = 'center';
-          ctx.fillText(gLabel, gx + 2.5, gearY + 8.5);
+          ctx.fillText(gLabel, gx + 1.2, gearY + 5.8);
         } else {
-          ctx.fillStyle = '#64748B';
-          ctx.font = 'bold 7px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(gLabel, gx + 2.5, gearY + 8.5);
+          drawPixelText(gLabel, gx + 1.2, gearY + 6.2, '#64748B', 'bold 5px monospace', 'center');
         }
       }
 
       // --- Indicador Aerodinâmico de Vácuo (Slipstream) ---
       if (this.player.inSlipstream) {
         const intensity = Math.min(1.0, this.player.slipstreamIntensity || 0.5);
-        const vacY = topY + clusterH + 3;
-        const vacW = leftW;
-        const vacH = 11;
-        ctx.fillStyle = 'rgba(8, 16, 26, 0.92)';
+        const vacY = topY + 41;
+        const vacW = 74;
+        const vacH = 8;
+
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(leftX + 0.8, vacY + 0.8, vacW, vacH);
+        ctx.fillStyle = 'rgba(8, 16, 26, 0.85)';
         ctx.fillRect(leftX, vacY, vacW, vacH);
         ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 0.8;
         ctx.strokeRect(leftX, vacY, vacW, vacH);
 
-        const fillW = Math.max(2, (vacW - 4) * intensity);
-        const vacGrad = ctx.createLinearGradient(leftX + 2, 0, leftX + vacW - 2, 0);
+        const fillW = Math.max(2, (vacW - 3) * intensity);
+        const vacGrad = ctx.createLinearGradient(leftX + 1.5, 0, leftX + vacW - 1.5, 0);
         vacGrad.addColorStop(0, '#00E5FF');
         vacGrad.addColorStop(1, '#00FF66');
         ctx.fillStyle = vacGrad;
-        ctx.fillRect(leftX + 2, vacY + 2, fillW, vacH - 4);
+        ctx.fillRect(leftX + 1.5, vacY + 1.5, fillW, vacH - 3);
 
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 6.5px monospace';
-        ctx.textAlign = 'center';
         const pct = Math.max(5, Math.round(intensity * 100));
-        ctx.fillText(`▲ VÁCUO ${pct}%`, leftX + vacW / 2, vacY + 8);
+        drawPixelText(`▲ VÁCUO ${pct}%`, leftX + vacW / 2, vacY + 6.2, '#FFFFFF', 'bold 5px monospace', 'center');
       }
 
       // ========================================================
-      // 2. LADO DIREITO SUPERIOR (INSPIRADO NO TOP GEAR 2)
+      // 2. LADO DIREITO SUPERIOR (DIRETO NA TELA - ESTILO TOP GEAR 2)
       // Tempos Atual e Melhor, Volta Atual/Total e Posição
       // ========================================================
-      const rightW = 106;
-      const rightX = INTERNAL_WIDTH - rightW - 36;
-
-      // Fundo do Cluster Direito
-      ctx.fillStyle = 'rgba(10, 15, 26, 0.88)';
-      ctx.fillRect(rightX, topY, rightW, clusterH);
-      ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rightX, topY, rightW, clusterH);
-      // Destaque superior em neon
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillRect(rightX, topY, rightW, 1.5);
+      const rightMargin = 28;
+      const rightEdge = INTERNAL_WIDTH - rightMargin;
 
       // Linha 1: Tempo Atual
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 6.8px monospace';
-      ctx.fillStyle = '#8FA3B8';
-      ctx.fillText('ATUAL', rightX + 6, topY + 12);
-      ctx.textAlign = 'right';
-      ctx.font = 'bold 8.5px monospace';
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillText(this.formatTime(this.currentLapTime), rightX + rightW - 6, topY + 12);
+      drawPixelText('ATUAL', rightEdge - 52, topY + 6, '#8FA3B8', 'bold 5px monospace', 'left');
+      drawPixelText(this.formatTime(this.currentLapTime), rightEdge, topY + 6, '#00E5FF', 'bold 6.2px monospace', 'right');
 
       // Linha 2: Melhor Volta
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 6.8px monospace';
-      ctx.fillStyle = '#8FA3B8';
-      ctx.fillText('MELHOR', rightX + 6, topY + 23);
-      ctx.textAlign = 'right';
-      ctx.font = 'bold 8.5px monospace';
-      ctx.fillStyle = '#FFD700';
       const bestStr = this.bestLapTime > 0 ? this.formatTime(this.bestLapTime) : '--:--.--';
-      ctx.fillText(bestStr, rightX + rightW - 6, topY + 23);
+      drawPixelText('MELHOR', rightEdge - 52, topY + 15, '#8FA3B8', 'bold 5px monospace', 'left');
+      drawPixelText(bestStr, rightEdge, topY + 15, '#FFD700', 'bold 6.2px monospace', 'right');
 
-      // Divisor sutil
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
-      ctx.fillRect(rightX + 6, topY + 28, rightW - 12, 1);
-
-      // Linha 3: Volta Atual e Total
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 7px monospace';
-      ctx.fillStyle = '#94A3B8';
-      ctx.fillText('VOLTA', rightX + 6, topY + 39);
-
-      ctx.textAlign = 'right';
+      // Linha 3: Volta Atual e Total (ambos do mesmo tamanho)
       const curLap = Math.min(this.player.laps + 1, TOTAL_LAPS);
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = (curLap === TOTAL_LAPS) ? '#FF5252' : '#FFFFFF';
-      ctx.fillText(`${curLap}`, rightX + rightW - 19, topY + 39);
-      ctx.font = 'bold 7.5px monospace';
-      ctx.fillStyle = '#64748B';
-      ctx.fillText(`/${TOTAL_LAPS}`, rightX + rightW - 6, topY + 39);
+      const lapColor = (curLap === TOTAL_LAPS) ? '#FF5252' : '#FFFFFF';
+      drawPixelText('VOLTA', rightEdge - 52, topY + 25, '#8FA3B8', 'bold 5px monospace', 'left');
 
-      // Linha 4: Posição na Corrida
+      // Desenha número da volta atual e total no mesmo tamanho de fonte exatamente
+      ctx.font = 'bold 6.5px monospace';
+      ctx.textAlign = 'right';
+      const lapTotalStr = `/${TOTAL_LAPS}`;
+      const totalWidth = ctx.measureText(lapTotalStr).width;
+      // Total da volta
+      drawPixelText(lapTotalStr, rightEdge, topY + 25, '#94A3B8', 'bold 6.5px monospace', 'right');
+      // Volta atual (mesmo tamanho de fonte)
+      drawPixelText(`${curLap}`, rightEdge - totalWidth, topY + 25, lapColor, 'bold 6.5px monospace', 'right');
+
+      // Linha 4: Posição na Corrida (ambos do mesmo tamanho)
       const ranked = this.getRankedCars();
       const playerPos = ranked.findIndex(c => c.isPlayer) + 1;
 
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 7px monospace';
-      ctx.fillStyle = '#94A3B8';
-      ctx.fillText('POSIÇÃO', rightX + 6, topY + 51);
+      drawPixelText('POSIÇÃO', rightEdge - 52, topY + 35, '#8FA3B8', 'bold 5px monospace', 'left');
 
-      ctx.textAlign = 'right';
       let posColor = '#FFFFFF';
       if (playerPos === 1) posColor = '#FFD700';
       else if (playerPos === 2) posColor = '#E2E8F0';
       else if (playerPos === 3) posColor = '#F59E0B';
       else if (playerPos <= 10) posColor = '#00E5FF';
 
-      ctx.font = 'bold 11px monospace';
-      ctx.fillStyle = posColor;
-      ctx.fillText(`${playerPos}º`, rightX + rightW - 20, topY + 51);
-
-      ctx.font = 'bold 7.5px monospace';
-      ctx.fillStyle = '#64748B';
-      ctx.fillText('/20', rightX + rightW - 6, topY + 51);
+      // Desenha posição atual e total no mesmo tamanho de fonte exatamente
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'right';
+      const posTotalStr = '/20';
+      const posTotalWidth = ctx.measureText(posTotalStr).width;
+      // Total de carros
+      drawPixelText(posTotalStr, rightEdge, topY + 35, '#94A3B8', 'bold 7px monospace', 'right');
+      // Posição atual (mesmo tamanho de fonte)
+      drawPixelText(`${playerPos}º`, rightEdge - posTotalWidth, topY + 35, posColor, 'bold 7px monospace', 'right');
 
       // ========================================================
       // 3. MINIMAPA ORIGINAL PRESERVADO (POSIÇÃO E FORMA)
@@ -4629,7 +4600,7 @@
       const mapBoxW = 58;
       const mapBoxH = 50;
       const mapBoxX = INTERNAL_WIDTH - mapBoxW - 8;
-      const mapBoxY = touchHud ? 68 : (INTERNAL_HEIGHT - mapBoxH - 6);
+      const mapBoxY = touchHud ? 52 : (INTERNAL_HEIGHT - mapBoxH - 6);
 
       ctx.fillStyle = 'rgba(8, 12, 20, 0.84)';
       ctx.fillRect(mapBoxX, mapBoxY, mapBoxW, mapBoxH);
