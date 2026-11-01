@@ -1040,6 +1040,491 @@ const MonumentArt = {
         break;
       }
 
+      // -------------------------------------------------------------
+      // PELOURINHO • SALVADOR / MARANHÃO (CASARIO COLONIAL COLORIDO)
+      // -------------------------------------------------------------
+      case 'pelourinho': {
+        const bw = size * 2.20;
+        const bh = size * 1.80;
+        const by = -bh;
+
+        // Três sobrados coloniais geminados em cores pastéis históricas
+        const cols = isNight 
+          ? ['#7C2D12', '#1E3A8A', '#78350F']
+          : (isDusk ? ['#EA580C', '#2563EB', '#D97706'] : ['#F97316', '#3B82F6', '#F59E0B']);
+        const roofCol = isNight ? '#451A03' : (isDusk ? '#7C2D12' : '#9A3412');
+        const houseW = bw / 3;
+
+        for (let h = 0; h < 3; h++) {
+          const hx = -bw * 0.50 + h * houseW;
+          ctx.fillStyle = cols[h];
+          ctx.fillRect(hx, by + bh * 0.20, houseW, bh * 0.80);
+
+          // Telhado colonial em duas águas
+          ctx.fillStyle = roofCol;
+          ctx.beginPath();
+          ctx.moveTo(hx - 2, by + bh * 0.20);
+          ctx.lineTo(hx + houseW * 0.50, by);
+          ctx.lineTo(hx + houseW + 2, by + bh * 0.20);
+          ctx.closePath();
+          ctx.fill();
+
+          // Janelas de guilhotina coloniais com molduras brancas
+          ctx.fillStyle = isNight ? '#FDE047' : '#FFFFFF';
+          for (let f = 0; f < 2; f++) {
+            const jx = hx + houseW * (0.22 + f * 0.44);
+            ctx.fillRect(jx - 3, by + bh * 0.35, 6, 8);
+            ctx.fillRect(jx - 3, by + bh * 0.60, 6, 8);
+          }
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // MERCADO MODELO • SALVADOR • BA (PRÉDIO HISTÓRICO DA ALFÂNDEGA)
+      // -------------------------------------------------------------
+      case 'mercado_modelo': {
+        const mw = size * 2.10;
+        const mh = size * 1.30;
+        const my = -mh;
+
+        // Corpo neoclássico amarelo ocre
+        ctx.fillStyle = isNight ? '#78350F' : (isDusk ? '#D97706' : '#F59E0B');
+        ctx.fillRect(-mw * 0.50, my + mh * 0.30, mw, mh * 0.70);
+
+        // Frontão triangular clássico
+        ctx.fillStyle = isNight ? '#451A03' : (isDusk ? '#92400E' : '#B45309');
+        ctx.beginPath();
+        ctx.moveTo(-mw * 0.52, my + mh * 0.30);
+        ctx.lineTo(0, my);
+        ctx.lineTo(mw * 0.52, my + mh * 0.30);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cúpula central azul
+        ctx.fillStyle = isNight ? '#1E3A8A' : '#0284C7';
+        ctx.beginPath();
+        ctx.arc(0, my, size * 0.28, Math.PI, 0);
+        ctx.fill();
+
+        // Arcadas coloniais da base
+        ctx.fillStyle = isNight ? '#1E293B' : '#334155';
+        for (let a = -mw * 0.38; a <= mw * 0.38; a += mw * 0.19) {
+          ctx.fillRect(a - 4, my + mh * 0.70, 8, mh * 0.30);
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // CALÇADÃO DE COPACABANA • RIO DE JANEIRO (ONDAS & QUIOSQUES)
+      // -------------------------------------------------------------
+      case 'calcadao_copacabana': {
+        const cw = size * 2.40;
+        const ch = size * 0.40;
+        const cy = -ch;
+
+        // Faixa de calçamento em pedra portuguesa (ondas pretas e brancas)
+        ctx.fillStyle = isNight ? '#334155' : '#E2E8F0';
+        ctx.fillRect(-cw * 0.50, cy, cw, ch);
+
+        ctx.fillStyle = isNight ? '#0F172A' : '#1E293B';
+        ctx.beginPath();
+        for (let o = -cw * 0.50; o <= cw * 0.50; o += cw * 0.20) {
+          ctx.quadraticCurveTo(o + cw * 0.05, cy - ch * 0.25, o + cw * 0.10, cy);
+          ctx.quadraticCurveTo(o + cw * 0.15, cy + ch * 0.25, o + cw * 0.20, cy);
+        }
+        ctx.lineTo(cw * 0.50, 0);
+        ctx.lineTo(-cw * 0.50, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Quiosque de praia com guarda-sol listrado
+        const kx = size * 0.45;
+        ctx.fillStyle = '#EA580C';
+        ctx.fillRect(kx - 6, -size * 0.75, 12, size * 0.45);
+        // Guarda-sol
+        ctx.fillStyle = '#FACC15';
+        ctx.beginPath();
+        ctx.arc(kx, -size * 0.75, size * 0.32, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = '#DC2626';
+        ctx.beginPath();
+        ctx.arc(kx, -size * 0.75, size * 0.32, Math.PI * 1.3, Math.PI * 1.7);
+        ctx.lineTo(kx, -size * 0.75);
+        ctx.fill();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ESTÁDIO DO MARACANÃ • RIO DE JANEIRO
+      // -------------------------------------------------------------
+      case 'maracana': {
+        const mw = size * 2.60;
+        const mh = size * 1.10;
+        const my = -mh;
+
+        // Estrutura oval monumental
+        ctx.fillStyle = isNight ? '#1E293B' : '#64748B';
+        ctx.fillRect(-mw * 0.50, my + mh * 0.25, mw, mh * 0.75);
+
+        // Colunas e pilotis
+        ctx.fillStyle = isNight ? '#334155' : '#94A3B8';
+        for (let col = -mw * 0.45; col <= mw * 0.45; col += mw * 0.12) {
+          ctx.fillRect(col - 2, my + mh * 0.25, 4, mh * 0.75);
+        }
+
+        // Cobertura translúcida moderna
+        ctx.fillStyle = isNight ? '#38BDF8' : '#BAE6FD';
+        ctx.beginPath();
+        ctx.ellipse(0, my + mh * 0.25, mw * 0.52, mh * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Refletores do estádio
+        if (isNight) {
+          ctx.fillStyle = '#FEF08A';
+          ctx.beginPath();
+          ctx.arc(-mw * 0.35, my, 4, 0, Math.PI * 2);
+          ctx.arc(mw * 0.35, my, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // PONTE JUSCELINO KUBITSCHEK (PONTE JK) • BRASÍLIA • DF
+      // -------------------------------------------------------------
+      case 'ponte_jk': {
+        const pw = size * 2.80;
+        const ph = size * 1.50;
+        const py = -ph;
+
+        // Três arcos parabólicos brancos inclinados que cruzam o lago Paranoá
+        ctx.strokeStyle = isNight ? '#E2E8F0' : '#FFFFFF';
+        ctx.lineWidth = Math.max(2, size * 0.06);
+
+        // Arco 1
+        ctx.beginPath();
+        ctx.moveTo(-pw * 0.45, 0);
+        ctx.quadraticCurveTo(-pw * 0.25, py - ph * 0.20, -pw * 0.05, 0);
+        ctx.stroke();
+
+        // Arco 2 (central)
+        ctx.beginPath();
+        ctx.moveTo(-pw * 0.20, 0);
+        ctx.quadraticCurveTo(0, py - ph * 0.25, pw * 0.20, 0);
+        ctx.stroke();
+
+        // Arco 3
+        ctx.beginPath();
+        ctx.moveTo(pw * 0.05, 0);
+        ctx.quadraticCurveTo(pw * 0.25, py - ph * 0.20, pw * 0.45, 0);
+        ctx.stroke();
+
+        // Pista estaiada da ponte
+        ctx.fillStyle = isNight ? '#0F172A' : '#1E293B';
+        ctx.fillRect(-pw * 0.50, -size * 0.16, pw, size * 0.16);
+
+        // Iluminação noturna dos arcos
+        if (isNight) {
+          ctx.fillStyle = '#38BDF8';
+          ctx.fillRect(-pw * 0.48, -size * 0.18, pw * 0.96, 2);
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ESTÁDIO DO MINEIRÃO • BELO HORIZONTE • MG
+      // -------------------------------------------------------------
+      case 'mineirao': {
+        const mw = size * 2.50;
+        const mh = size * 1.20;
+        const my = -mh;
+
+        // Estrutura de concreto armado aparente de Niemeyer
+        ctx.fillStyle = isNight ? '#1E293B' : '#78716C';
+        ctx.fillRect(-mw * 0.50, my + mh * 0.35, mw, mh * 0.65);
+
+        // Arcos de concreto ritmados
+        ctx.fillStyle = isNight ? '#334155' : '#A8A29E';
+        for (let a = -mw * 0.44; a <= mw * 0.44; a += mw * 0.11) {
+          ctx.fillRect(a - 3, my + mh * 0.35, 6, mh * 0.65);
+        }
+
+        // Anel de cobertura superior
+        ctx.fillStyle = isNight ? '#CBD5E1' : '#F5F5F4';
+        ctx.fillRect(-mw * 0.52, my + mh * 0.25, mw * 1.04, mh * 0.12);
+
+        // Refletores de campo de futebol
+        if (isNight) {
+          ctx.fillStyle = '#FEF08A';
+          ctx.fillRect(-mw * 0.38, my + mh * 0.10, 8, 4);
+          ctx.fillRect(mw * 0.34, my + mh * 0.10, 8, 4);
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // MANDACARU DO SERTÃO • CAATINGA / DESERTO
+      // -------------------------------------------------------------
+      case 'mandacaru': {
+        const mw = size * 0.65;
+        const mh = size * 1.80;
+        const my = -mh;
+
+        const stemCol = isNight ? '#064E3B' : (isDusk ? '#166534' : '#15803D');
+        const ribCol  = isNight ? '#047857' : (isDusk ? '#22C55E' : '#4ADE80');
+        ctx.fillStyle = stemCol;
+
+        // Tronco principal do cacto
+        ctx.fillRect(-mw * 0.20, my, mw * 0.40, mh);
+
+        // Braço esquerdo arqueado para cima
+        ctx.fillRect(-mw * 0.60, my + mh * 0.30, mw * 0.45, mw * 0.22);
+        ctx.fillRect(-mw * 0.60, my + mh * 0.05, mw * 0.22, mh * 0.30);
+
+        // Braço direito arqueado para cima
+        ctx.fillRect(mw * 0.15, my + mh * 0.40, mw * 0.45, mw * 0.22);
+        ctx.fillRect(mw * 0.40, my + mh * 0.15, mw * 0.22, mh * 0.30);
+
+        // Nervuras claras com espinhos
+        ctx.fillStyle = ribCol;
+        ctx.fillRect(-2, my, 4, mh);
+        ctx.fillRect(-mw * 0.55, my + mh * 0.05, 3, mh * 0.30);
+        ctx.fillRect(mw * 0.45, my + mh * 0.15, 3, mh * 0.30);
+
+        // Flor branca de mandacaru no topo
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(0, my, size * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ARCO NATURAL DOS CÂNYONS • CHAPADA DIAMANTINA
+      // -------------------------------------------------------------
+      case 'canyon_arch': {
+        const aw = size * 2.80;
+        const ah = size * 2.20;
+        const ay = -ah;
+
+        // Grande arco monumental de arenito vermelho
+        ctx.fillStyle = isNight ? '#451A03' : (isDusk ? '#9A3412' : '#C2410C');
+        ctx.beginPath();
+        ctx.moveTo(-aw * 0.50, 0);
+        ctx.lineTo(-aw * 0.50, ay + ah * 0.20);
+        ctx.quadraticCurveTo(0, ay, aw * 0.50, ay + ah * 0.20);
+        ctx.lineTo(aw * 0.50, 0);
+        ctx.lineTo(aw * 0.25, 0);
+        ctx.quadraticCurveTo(0, ay + ah * 0.45, -aw * 0.25, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Estratificações e fendas geológicas da rocha
+        ctx.strokeStyle = isNight ? '#2A1102' : (isDusk ? '#7C2D12' : '#78350F');
+        ctx.lineWidth = Math.max(1, size * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(-aw * 0.42, ay + ah * 0.40);
+        ctx.quadraticCurveTo(0, ay + ah * 0.25, aw * 0.42, ay + ah * 0.40);
+        ctx.stroke();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // MONUMENTO AO CARANGUEJO GIGANTE • ARACAJU • SE
+      // -------------------------------------------------------------
+      case 'caranguejo_gigante': {
+        const cw = size * 1.50;
+        const ch = size * 0.85;
+        const cy = -ch;
+
+        // Pedestal de granito
+        ctx.fillStyle = isNight ? '#1E293B' : '#475569';
+        ctx.fillRect(-cw * 0.45, -size * 0.15, cw * 0.90, size * 0.15);
+
+        // Carapaça azul royal e alaranjada
+        ctx.fillStyle = isNight ? '#1E3A8A' : '#0284C7';
+        ctx.beginPath();
+        ctx.ellipse(0, cy + ch * 0.40, cw * 0.38, ch * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Quelíceras / Garras dianteiras vermelhas
+        ctx.fillStyle = isNight ? '#991B1B' : '#EF4444';
+        ctx.beginPath();
+        ctx.arc(-cw * 0.38, cy + ch * 0.20, size * 0.18, 0, Math.PI * 2);
+        ctx.arc(cw * 0.38, cy + ch * 0.20, size * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Olhos saltados
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(-cw * 0.12, cy + ch * 0.12, 3, 0, Math.PI * 2);
+        ctx.arc(cw * 0.12, cy + ch * 0.12, 3, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // CADEIRA GIGANTE DE PRAIA • MACEIÓ • AL
+      // -------------------------------------------------------------
+      case 'cadeira_gigante': {
+        const cw = size * 1.30;
+        const ch = size * 1.70;
+        const cy = -ch;
+
+        // Cadeira de praia gigante cor turquesa
+        ctx.fillStyle = isNight ? '#0F766E' : '#14B8A6';
+
+        // Pernas da cadeira
+        ctx.fillRect(-cw * 0.40, -size * 0.60, size * 0.08, size * 0.60);
+        ctx.fillRect(cw * 0.32, -size * 0.60, size * 0.08, size * 0.60);
+
+        // Assento
+        ctx.fillRect(-cw * 0.45, -size * 0.65, cw * 0.90, size * 0.10);
+
+        // Encosto alto ripado
+        for (let r = 0; r < 4; r++) {
+          ctx.fillRect(-cw * 0.36 + r * (cw * 0.22), cy, size * 0.08, ch * 0.65);
+        }
+        ctx.fillRect(-cw * 0.40, cy, cw * 0.80, size * 0.09);
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ESTAÇÃO DAS DOCAS (GUINDASTES HISTÓRICOS) • BELÉM • PA
+      // -------------------------------------------------------------
+      case 'estacao_docas': {
+        const gw = size * 1.80;
+        const gh = size * 2.20;
+        const gy = -gh;
+
+        // Armazém de tijolos ingleses
+        ctx.fillStyle = isNight ? '#78350F' : '#D97706';
+        ctx.fillRect(-gw * 0.50, -size * 0.70, gw, size * 0.70);
+
+        // Guindaste portuário de ferro preto
+        ctx.fillStyle = isNight ? '#090D16' : '#1E293B';
+        ctx.fillRect(gw * 0.10, gy + gh * 0.35, size * 0.22, gh * 0.65);
+
+        // Lança treliçada do guindaste apontada para o rio
+        ctx.strokeStyle = isNight ? '#1E293B' : '#334155';
+        ctx.lineWidth = Math.max(1.5, size * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(gw * 0.20, gy + gh * 0.35);
+        ctx.lineTo(-gw * 0.30, gy);
+        ctx.lineTo(-gw * 0.30, gy + size * 0.50);
+        ctx.stroke();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // ENCONTRO DAS ÁGUAS (RIO NEGRO & SOLIMÕES) • MANAUS • AM
+      // -------------------------------------------------------------
+      case 'encontro_aguas': {
+        const ew = size * 2.80;
+        const eh = size * 0.50;
+        const ey = -eh;
+
+        // Duas faixas fluviais correndo lado a lado sem se misturar:
+        // Lado esquerdo: Águas escuras do Rio Negro
+        ctx.fillStyle = isNight ? '#050B14' : '#0B132B';
+        ctx.fillRect(-ew * 0.50, ey, ew * 0.50, eh);
+
+        // Lado direito: Águas barrentas cor de café com leite do Rio Solimões
+        ctx.fillStyle = isNight ? '#451A03' : '#854D0E';
+        ctx.fillRect(0, ey, ew * 0.50, eh);
+
+        // Linha divisória nítida com ondulações
+        ctx.strokeStyle = '#FACC15';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(0, ey);
+        ctx.lineTo(0, 0);
+        ctx.stroke();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // BOSQUE DOS BURITIS • GOIÂNIA / CENTRO-OESTE
+      // -------------------------------------------------------------
+      case 'bosque_buritis': {
+        const bw = size * 1.80;
+        const bh = size * 2.40;
+        const by = -bh;
+
+        // Três palmeiras Buriti majestosas do Cerrado
+        for (let p = 0; p < 3; p++) {
+          const px = -bw * 0.40 + p * (bw * 0.40);
+          const py_p = by + (p === 1 ? 0 : size * 0.30);
+          
+          // Estipe ereto esbelto
+          ctx.fillStyle = isNight ? '#1C1917' : '#44403C';
+          ctx.fillRect(px - 3, py_p, 6, -py_p);
+
+          // Copa em leque circular exuberante
+          ctx.fillStyle = isNight ? '#064E3B' : '#15803D';
+          ctx.beginPath();
+          ctx.arc(px, py_p, size * 0.38, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // MORRO DO CARECA • NATAL • RN (GRANDE DUNA & MATA ATLÂNTICA)
+      // -------------------------------------------------------------
+      case 'morro_careca': {
+        const dw = size * 2.90;
+        const dh = size * 2.20;
+        const dy = -dh;
+
+        // Encosta coberta de restinga e mata verde
+        ctx.fillStyle = isNight ? '#064E3B' : '#15803D';
+        ctx.beginPath();
+        ctx.moveTo(-dw * 0.50, 0);
+        ctx.quadraticCurveTo(-dw * 0.15, dy, 0, dy);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Grande duna central de areia dourada
+        ctx.fillStyle = isNight ? '#78350F' : (isDusk ? '#D97706' : '#FCD34D');
+        ctx.beginPath();
+        ctx.moveTo(0, dy);
+        ctx.quadraticCurveTo(dw * 0.20, dy + dh * 0.30, dw * 0.50, 0);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      // -------------------------------------------------------------
+      // BOSQUE DAS ARAUCÁRIAS • SERRA CATARINENSE / PARANÁ / RS
+      // -------------------------------------------------------------
+      case 'araucaria_grove': {
+        const gw = size * 2.40;
+        const gh = size * 2.30;
+        const gy = -gh;
+
+        // Trio de Pinheiros Araucária centenários com copas em taça
+        for (let a = 0; a < 3; a++) {
+          const ax = -gw * 0.38 + a * (gw * 0.38);
+          const ay_a = gy + (a === 1 ? 0 : size * 0.25);
+
+          // Tronco esbelto cilíndrico
+          ctx.fillStyle = isNight ? '#1C1917' : '#44403C';
+          ctx.fillRect(ax - 3, ay_a, 6, -ay_a);
+
+          // Andares característicos de galhos em candelabro
+          ctx.fillStyle = isNight ? '#0A2518' : '#14532D';
+          ctx.beginPath();
+          ctx.ellipse(ax, ay_a, size * 0.42, size * 0.14, 0, 0, Math.PI * 2);
+          ctx.ellipse(ax, ay_a + size * 0.18, size * 0.32, size * 0.10, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
       default:
         // Caso padrão caso não encontre
         break;

@@ -625,15 +625,31 @@
           this.audio.playBeep(440, 0.05);
         }
         if (this.input.justPressedUp) {
-          // Salta 9 posições (1 fileira acima na grade 3x9)
-          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex - 9 + TRACK_DEFINITIONS.length) % TRACK_DEFINITIONS.length;
+          if (this.selectedQuickTrackIndex < 4) {
+            // Se está na fileira clássica, sobe para a última fileira de capitais
+            this.selectedQuickTrackIndex = Math.min(TRACK_DEFINITIONS.length - 1, 22 + this.selectedQuickTrackIndex);
+          } else if (this.selectedQuickTrackIndex < 13) {
+            // Se está na 1ª fileira de capitais (4..12), sobe para a fileira clássica (0..3)
+            this.selectedQuickTrackIndex = Math.min(3, Math.floor((this.selectedQuickTrackIndex - 4) * (4 / 9)));
+          } else {
+            // Sobe 1 fileira de capitais (-9 posições)
+            this.selectedQuickTrackIndex -= 9;
+          }
           this.trackIndex = this.selectedQuickTrackIndex;
           this.loadTrack(this.trackIndex);
           this.audio.playBeep(440, 0.05);
         }
         if (this.input.justPressedDown) {
-          // Salta 9 posições (1 fileira abaixo na grade 3x9)
-          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex + 9) % TRACK_DEFINITIONS.length;
+          if (this.selectedQuickTrackIndex < 4) {
+            // Se está na fileira clássica, desce para a 1ª fileira de capitais
+            this.selectedQuickTrackIndex = 4 + Math.floor(this.selectedQuickTrackIndex * (9 / 4));
+          } else if (this.selectedQuickTrackIndex >= 22) {
+            // Se está na última fileira de capitais, desce para a fileira clássica
+            this.selectedQuickTrackIndex = Math.min(3, Math.floor((this.selectedQuickTrackIndex - 22) * (4 / 9)));
+          } else {
+            // Desce 1 fileira de capitais (+9 posições)
+            this.selectedQuickTrackIndex = Math.min(TRACK_DEFINITIONS.length - 1, this.selectedQuickTrackIndex + 9);
+          }
           this.trackIndex = this.selectedQuickTrackIndex;
           this.loadTrack(this.trackIndex);
           this.audio.playBeep(440, 0.05);
@@ -3294,7 +3310,8 @@
         ctx.fillStyle = isBrasil ? '#FEDD00' : (isNoite ? '#00E5FF' : '#FFFFFF');
         ctx.font = `bold ${Math.max(5, Math.floor(bannerH * 0.58))}px monospace`;
         ctx.textAlign = 'center';
-        const txt = isBrasil ? '★ LH44 BRASIL GP - INTERLAGOS ★' : (isNoite ? 'CYBER CITY GP' : 'SERRA CATARINENSE');
+        const trackTitle = def ? (def.name || 'BRASIL GP') : 'BRASIL GP';
+        const txt = isBrasil ? '★ LH44 BRASIL GP - INTERLAGOS ★' : (isNoite ? '★ CYBER CITY GP ★' : `★ GP ${trackTitle} ★`);
         ctx.fillText(txt, p1.x, topY + bannerH * 0.70);
       }
       ctx.restore();
@@ -4848,45 +4865,66 @@
       return { touchSafe, cardW, cardH, cardY, card0, card1, btnBack, btnConfirm };
     }
 
-    // Geometria da tela "Escolha de Pista" com as 27 capitais do Brasil
+    // Geometria da tela "Escolha de Pista" (4 Clássicas + 27 Capitais do Brasil)
     getTrackSelectLayout() {
       const touchSafe = this.input.touchControlsVisible;
       const W = INTERNAL_WIDTH;
       const H = INTERNAL_HEIGHT;
 
-      // Grade dos 27 circuitos das capitais (3 linhas x 9 colunas)
+      // Row 0: 4 Circuitos Clássicos destacados (Interlagos, Serra, Metrópole, Sertão)
+      const classicCount = 4;
+      const classicGapX = touchSafe ? 3 : 4;
+      const maxGridW = touchSafe ? Math.min(W - 14, 306) : Math.min(W - 18, 314);
+      const classicW = Math.floor((maxGridW - (classicCount - 1) * classicGapX) / classicCount);
+      const classicH = touchSafe ? 9.5 : 10;
+      const classicTotalW = classicCount * classicW + (classicCount - 1) * classicGapX;
+      const classicX0 = Math.round((W - classicTotalW) / 2);
+      const classicY0 = touchSafe ? 13 : 14;
+
+      const chips = [];
+      for (let i = 0; i < 4; i++) {
+        chips.push({
+          x: classicX0 + i * (classicW + classicGapX),
+          y: classicY0,
+          w: classicW,
+          h: classicH,
+          i: i,
+          isClassic: true
+        });
+      }
+
+      // Rows 1..3: 27 Circuitos das Capitais (3 linhas x 9 colunas)
       const cols = 9;
       const rows = 3;
       const gapX = touchSafe ? 2 : 2.5;
       const gapY = 2;
-      const maxGridW = touchSafe ? Math.min(W - 14, 306) : Math.min(W - 20, 312);
-      const chipW = Math.floor((maxGridW - (cols - 1) * gapX) / cols);
-      const chipH = touchSafe ? 9.5 : 10.5;
-      const gridW = cols * chipW + (cols - 1) * gapX;
-      const gridH = rows * chipH + (rows - 1) * gapY;
-      const gridX = Math.round((W - gridW) / 2);
-      const gridY = touchSafe ? 15 : 16;
+      const capChipW = Math.floor((maxGridW - (cols - 1) * gapX) / cols);
+      const capChipH = touchSafe ? 8.5 : 9.5;
+      const capGridW = cols * capChipW + (cols - 1) * gapX;
+      const capGridX = Math.round((W - capGridW) / 2);
+      const capGridY = classicY0 + classicH + (touchSafe ? 2.5 : 3);
 
-      const chips = [];
-      for (let i = 0; i < TRACK_DEFINITIONS.length; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
+      for (let i = 4; i < TRACK_DEFINITIONS.length; i++) {
+        const capIdx = i - 4;
+        const col = capIdx % cols;
+        const row = Math.floor(capIdx / cols);
         chips.push({
-          x: gridX + col * (chipW + gapX),
-          y: gridY + row * (chipH + gapY),
-          w: chipW,
-          h: chipH,
-          i: i
+          x: capGridX + col * (capChipW + gapX),
+          y: capGridY + row * (capChipH + gapY),
+          w: capChipW,
+          h: capChipH,
+          i: i,
+          isClassic: false
         });
       }
 
-      const gridBottom = gridY + gridH;
+      const gridBottom = capGridY + rows * capChipH + (rows - 1) * gapY;
 
-      // Card central do showroom da pista / capital
-      const bW = touchSafe ? Math.min(W - 16, 280) : Math.min(W - 24, 300);
-      const bH = touchSafe ? 116 : 126;
+      // Card central do showroom da pista
+      const bW = touchSafe ? Math.min(W - 16, 280) : Math.min(W - 20, 304);
+      const bH = touchSafe ? 116 : 124;
       const bX = Math.round((W - bW) / 2);
-      const bY = gridBottom + (touchSafe ? 4 : 5);
+      const bY = gridBottom + (touchSafe ? 3.5 : 4);
 
       // Setas de navegação lateral
       const arrowW = 16;
@@ -5324,24 +5362,34 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00E5FF';
       ctx.font = touchSafe ? 'bold 9.5px monospace' : 'bold 10.5px monospace';
-      ctx.fillText('CIRCUITOS DO BRASIL — 27 CAPITAIS', INTERNAL_WIDTH / 2, touchSafe ? 11 : 12);
+      ctx.fillText('CIRCUITOS DO BRASIL — 4 CLÁSSICAS & 27 CAPITAIS', INTERNAL_WIDTH / 2, touchSafe ? 9.5 : 10.5);
 
-      // 1. Grade dos 27 Chips de Estados (3 linhas x 9 colunas)
+      // 1. Grade de Chips (Fileira Clássica Dourada + 27 Capitais)
       for (let c = 0; c < L.chips.length; c++) {
         const chip = L.chips[c];
         const isSel = (this.selectedQuickTrackIndex === chip.i);
         const tDef = TRACK_DEFINITIONS[chip.i];
-        const stateTxt = tDef.stateCode || (chip.i + 1);
+        const stateTxt = chip.isClassic 
+          ? `★ ${tDef.stateCode || tDef.name.split(' ')[0]}`
+          : (tDef.stateCode || (chip.i - 3));
 
-        ctx.fillStyle = isSel ? '#00E5FF' : 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
-
-        ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(70, 90, 120, 0.4)';
-        ctx.lineWidth = isSel ? 1.2 : 0.6;
-        ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
-
-        ctx.fillStyle = isSel ? '#041019' : '#CBD5E1';
-        ctx.font = 'bold 5.8px monospace';
+        if (chip.isClassic) {
+          ctx.fillStyle = isSel ? '#FFD700' : 'rgba(245, 158, 11, 0.22)';
+          ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+          ctx.strokeStyle = isSel ? '#FFFFFF' : '#F59E0B';
+          ctx.lineWidth = isSel ? 1.3 : 0.8;
+          ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
+          ctx.fillStyle = isSel ? '#041019' : '#FDE68A';
+          ctx.font = 'bold 5.8px monospace';
+        } else {
+          ctx.fillStyle = isSel ? '#00E5FF' : 'rgba(15, 23, 42, 0.85)';
+          ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+          ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(70, 90, 120, 0.4)';
+          ctx.lineWidth = isSel ? 1.2 : 0.6;
+          ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
+          ctx.fillStyle = isSel ? '#041019' : '#CBD5E1';
+          ctx.font = 'bold 5.6px monospace';
+        }
         ctx.textAlign = 'center';
         ctx.fillText(stateTxt, chip.x + chip.w / 2, chip.y + chip.h * 0.75);
       }
@@ -5367,7 +5415,7 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFD700';
       ctx.font = 'bold 8px monospace';
-      ctx.fillText(`[ ${numStr} / 27 ]  ${track.name}`, bX + bW / 2, bY + 13);
+      ctx.fillText(`[ ${numStr} / ${TRACK_DEFINITIONS.length} ]  ${track.name}`, bX + bW / 2, bY + 13);
 
       // Subtítulo do Monumento
       ctx.fillStyle = '#FFFFFF';
