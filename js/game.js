@@ -4346,141 +4346,290 @@
     renderHUD(ctx) {
       ctx.save();
       const touchHud = this.input.touchControlsVisible;
+      const topY = 6;
+      const clusterH = 58;
 
-      // Barra superior estilo telemetria de corrida
-      ctx.fillStyle = 'rgba(8, 12, 20, 0.84)';
-      ctx.fillRect(8, 5, INTERNAL_WIDTH - 16, 23);
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillRect(8, 5, INTERNAL_WIDTH - 16, 1.5);
-      ctx.strokeStyle = 'rgba(120, 150, 185, 0.45)';
+      // ========================================================
+      // 1. LADO ESQUERDO SUPERIOR (INSPIRADO NO TOP GEAR 2)
+      // Tacômetro em Arco, Velocidade KM/H, Nitro N2O e Marchas
+      // ========================================================
+      const leftX = 7;
+      const leftW = 114;
+
+      // Fundo do Cluster Esquerdo
+      ctx.fillStyle = 'rgba(10, 15, 26, 0.88)';
+      ctx.fillRect(leftX, topY, leftW, clusterH);
+      ctx.strokeStyle = this.player.isNitro ? '#00E5FF' : 'rgba(0, 229, 255, 0.45)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(8, 5, INTERNAL_WIDTH - 16, 23);
+      ctx.strokeRect(leftX, topY, leftW, clusterH);
+      // Destaque superior em neon
+      ctx.fillStyle = this.player.isNitro ? '#80F8FF' : '#00E5FF';
+      ctx.fillRect(leftX, topY, leftW, 1.5);
 
-      const ranked = this.getRankedCars();
-      const playerPos = ranked.findIndex(c => c.isPlayer) + 1;
-      ctx.font = 'bold 12px monospace';
-      ctx.fillStyle = playerPos <= 3 ? '#FFD700' : '#FFFFFF';
-      ctx.textAlign = 'left';
-      ctx.fillText(`P${playerPos}`, 15, 21);
-      ctx.font = '9px monospace';
-      ctx.fillStyle = '#8FA3B8';
-      ctx.fillText('/20', 38, 21);
+      // --- Tacômetro Curvado de Velocidade/RPM estilo Top Gear 2 ---
+      const segCount = 14;
+      const maxRefSpeed = Math.max(180, (this.player.model.maxSpeed || 200) * 1.15);
+      const spdRatio = Math.max(0, Math.min(1, this.player.speed / maxRefSpeed));
+      const activeSegs = Math.round(spdRatio * segCount);
 
-      // Posicionado à esquerda da barra central de utilitários para nunca colidir
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.textAlign = 'left';
-      const curLapDisplay = Math.min(this.player.laps + 1, TOTAL_LAPS);
-      ctx.fillText(`VOLTA ${curLapDisplay}/${TOTAL_LAPS}`, 62, 20);
+      for (let i = 0; i < segCount; i++) {
+        const t = i / (segCount - 1);
+        // Curva ascendente para a direita
+        const sx = leftX + 6 + i * 4.6;
+        const sy = topY + 18 - Math.sin(t * Math.PI * 0.5) * 9.5;
+        const sw = 3.6;
+        const sh = 7.0;
+        const skew = 1.3;
 
-      ctx.font = '8px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#00E5FF';
-      ctx.fillText(`ATUAL  ${this.formatTime(this.currentLapTime)}`, INTERNAL_WIDTH - 14, 14);
-      ctx.fillStyle = '#FFB300';
-      ctx.fillText(`MELHOR ${this.bestLapTime > 0 ? this.formatTime(this.bestLapTime) : '--:--.--'}`, INTERNAL_WIDTH - 14, 24);
+        ctx.beginPath();
+        ctx.moveTo(sx + skew, sy);
+        ctx.lineTo(sx + sw + skew, sy);
+        ctx.lineTo(sx + sw, sy + sh);
+        ctx.lineTo(sx, sy + sh);
+        ctx.closePath();
 
-      // Quando controles touch estão visíveis, move Velocímetro/Nitro e Minimapa para o TOPO
-      // deixando os cantos inferiores 100% livres para a Cruz SNES e os Botões 1, 2, 3!
-      const spdX = 8;
-      const spdY = touchHud ? 31 : (INTERNAL_HEIGHT - 46);
-      const spdW = 104;
-      const spdH = 40;
-      ctx.fillStyle = 'rgba(8, 12, 20, 0.88)';
-      ctx.fillRect(spdX, spdY, spdW, spdH);
-      ctx.strokeStyle = this.player.isNitro ? '#00E5FF' : '#E74C3C';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(spdX, spdY, spdW, spdH);
-
-      // Velocidade + KM/H
-      const spdVal = String(Math.floor(this.player.speed)).padStart(3, '0');
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = 'rgba(255,255,255,0.14)';
-      ctx.fillText('888', spdX + 5, spdY + 16);
-      ctx.fillStyle = this.player.isNitro ? '#80F8FF' : '#FFFFFF';
-      ctx.fillText(spdVal, spdX + 5, spdY + 16);
-
-      ctx.font = 'bold 7px monospace';
-      ctx.fillStyle = '#E74C3C';
-      ctx.fillText('KM/H', spdX + 41, spdY + 15);
-
-      // Indicador de Marcha em destaque
-      ctx.fillStyle = '#162030';
-      ctx.fillRect(spdX + 70, spdY + 4, 29, 14);
-      ctx.strokeStyle = '#2C3E50';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(spdX + 70, spdY + 4, 29, 14);
-      ctx.fillStyle = '#00E5FF';
-      ctx.font = 'bold 10px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${this.player.currentGear}ª`, spdX + 84.5, spdY + 14.5);
-
-      // Barra de RPM segmentada estilo F1 (12 LEDs)
-      const rpmPercent = Math.min(1, this.player.rpm / 7600);
-      const totalLeds = 12;
-      const activeLeds = Math.round(rpmPercent * totalLeds);
-      for (let l = 0; l < totalLeds; l++) {
-        const lx = spdX + 5 + l * 7.9;
-        if (l < activeLeds) {
-          ctx.fillStyle = l >= 9 ? '#FF1744' : (l >= 6 ? '#FFB300' : '#00E676');
+        if (i < activeSegs) {
+          let fillCol = '#00E5FF';
+          if (i >= 11) fillCol = '#FF1744';
+          else if (i >= 7) fillCol = '#FFD700';
+          else if (i >= 4) fillCol = '#00E676';
+          ctx.fillStyle = fillCol;
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
         } else {
-          ctx.fillStyle = '#1E2430';
+          ctx.fillStyle = 'rgba(18, 24, 38, 0.85)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(50, 68, 92, 0.35)';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
         }
-        ctx.fillRect(lx, spdY + 21, 6.2, 4);
       }
 
-      // Cargas de Nitro (N2O)
+      // --- Velocidade Digital + KM/H ---
+      const spdVal = String(Math.floor(this.player.speed));
+      const numX = leftX + 107;
+      ctx.textAlign = 'right';
+
+      // Fundo fantasma retrô 888
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.fillText('888', numX, topY + 16);
+
+      // Dígitos ativos de velocidade
+      ctx.fillStyle = this.player.isNitro ? '#80F8FF' : '#FFFFFF';
+      ctx.fillText(spdVal, numX, topY + 16);
+
+      // Badge KM/H
+      ctx.font = 'bold 6.5px monospace';
+      ctx.fillStyle = '#FF5252';
+      ctx.fillText('KM/H', numX, topY + 23);
+
+      // --- Cargas de Nitro N2O estilo Top Gear 2 ---
+      const nitroY = topY + 28;
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#90A4AE';
       ctx.font = 'bold 7px monospace';
-      ctx.fillText('N2O', spdX + 5, spdY + 35);
+      ctx.fillStyle = '#00E5FF';
+      ctx.fillText('NITRO', leftX + 6, nitroY + 6.5);
+
       for (let n = 0; n < 3; n++) {
-        const nx = spdX + 27 + n * 24;
-        ctx.fillStyle = '#18202C';
-        ctx.fillRect(nx, spdY + 29, 20, 7);
+        const bx = leftX + 38 + n * 24;
+        const bw = 20;
+        const bh = 7;
+        const skewN = 2.0;
+
+        ctx.beginPath();
+        ctx.moveTo(bx + skewN, nitroY);
+        ctx.lineTo(bx + bw + skewN, nitroY);
+        ctx.lineTo(bx + bw, nitroY + bh);
+        ctx.lineTo(bx, nitroY + bh);
+        ctx.closePath();
+        ctx.fillStyle = '#141A26';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.35)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
         if (n < this.player.nitroCharges) {
+          ctx.beginPath();
+          ctx.moveTo(bx + skewN + 1, nitroY + 1);
+          ctx.lineTo(bx + bw + skewN - 1, nitroY + 1);
+          ctx.lineTo(bx + bw - 1, nitroY + bh - 1);
+          ctx.lineTo(bx + 1, nitroY + bh - 1);
+          ctx.closePath();
           ctx.fillStyle = '#00E5FF';
-          ctx.fillRect(nx + 1, spdY + 30, 18, 5);
-          ctx.fillStyle = '#B2EBF2';
-          ctx.fillRect(nx + 1, spdY + 30, 18, 1.5);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.moveTo(bx + skewN + 1.5, nitroY + 1.2);
+          ctx.lineTo(bx + bw + skewN - 1.5, nitroY + 1.2);
+          ctx.lineTo(bx + bw - 0.5, nitroY + 2.8);
+          ctx.lineTo(bx + 1.5, nitroY + 2.8);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fill();
         } else if (n === this.player.nitroCharges && this.player.isNitro) {
           const burnRatio = Math.max(0, this.player.nitroTimer / 2.4);
-          ctx.fillStyle = '#80F8FF';
-          ctx.fillRect(nx + 1, spdY + 30, 18 * burnRatio, 5);
+          const curW = (bw - 2) * burnRatio;
+          if (curW > 1) {
+            ctx.beginPath();
+            ctx.moveTo(bx + skewN + 1, nitroY + 1);
+            ctx.lineTo(bx + curW + skewN, nitroY + 1);
+            ctx.lineTo(bx + curW, nitroY + bh - 1);
+            ctx.lineTo(bx + 1, nitroY + bh - 1);
+            ctx.closePath();
+            ctx.fillStyle = (Math.floor(performance.now() / 80) % 2 === 0) ? '#FFFFFF' : '#80F8FF';
+            ctx.fill();
+          }
         }
       }
 
-      // Indicador aerodinâmico de Vácuo (Slipstream) estilo F1
+      // --- Linha de Marchas estilo Top Gear 2 ---
+      const gearY = topY + 41;
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 6.5px monospace';
+      ctx.fillStyle = '#FFD700';
+      ctx.fillText('CAMBIO', leftX + 6, gearY + 9);
+
+      const gears = ['R', '1', '2', '3', '4', '5', '6'];
+      const curGear = this.player.currentGear || 1;
+      const isRev = (this.player.speed < 0);
+
+      for (let g = 0; g < gears.length; g++) {
+        const gx = leftX + 40 + g * 10;
+        const gLabel = gears[g];
+        const isActive = isRev ? (gLabel === 'R') : (gLabel === String(curGear));
+
+        if (isActive) {
+          ctx.fillStyle = '#00E5FF';
+          ctx.fillRect(gx - 2, gearY + 1, 9, 10);
+          ctx.fillStyle = '#041019';
+          ctx.font = 'bold 7.5px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(gLabel, gx + 2.5, gearY + 8.5);
+        } else {
+          ctx.fillStyle = '#64748B';
+          ctx.font = 'bold 7px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(gLabel, gx + 2.5, gearY + 8.5);
+        }
+      }
+
+      // --- Indicador Aerodinâmico de Vácuo (Slipstream) ---
       if (this.player.inSlipstream) {
         const intensity = Math.min(1.0, this.player.slipstreamIntensity || 0.5);
-        const vacY = touchHud ? (spdY + spdH + 2) : (spdY - 14);
-        const barW = 60;
-        const barH = 12;
-        ctx.fillStyle = 'rgba(8, 16, 26, 0.90)';
-        ctx.fillRect(spdX, vacY, barW, barH);
+        const vacY = topY + clusterH + 3;
+        const vacW = leftW;
+        const vacH = 11;
+        ctx.fillStyle = 'rgba(8, 16, 26, 0.92)';
+        ctx.fillRect(leftX, vacY, vacW, vacH);
         ctx.strokeStyle = '#00E5FF';
         ctx.lineWidth = 1;
-        ctx.strokeRect(spdX, vacY, barW, barH);
+        ctx.strokeRect(leftX, vacY, vacW, vacH);
 
-        const fillW = Math.max(2, (barW - 4) * intensity);
-        const vacGrad = ctx.createLinearGradient(spdX + 2, 0, spdX + barW - 2, 0);
+        const fillW = Math.max(2, (vacW - 4) * intensity);
+        const vacGrad = ctx.createLinearGradient(leftX + 2, 0, leftX + vacW - 2, 0);
         vacGrad.addColorStop(0, '#00E5FF');
         vacGrad.addColorStop(1, '#00FF66');
         ctx.fillStyle = vacGrad;
-        ctx.fillRect(spdX + 2, vacY + 2, fillW, barH - 4);
+        ctx.fillRect(leftX + 2, vacY + 2, fillW, vacH - 4);
 
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 6.4px monospace';
+        ctx.font = 'bold 6.5px monospace';
         ctx.textAlign = 'center';
         const pct = Math.max(5, Math.round(intensity * 100));
-        ctx.fillText(`▲ VÁCUO ${pct}%`, spdX + barW / 2, vacY + 8.5);
+        ctx.fillText(`▲ VÁCUO ${pct}%`, leftX + vacW / 2, vacY + 8);
       }
-      // Minimapa com traçado duplo e linha de chegada
+
+      // ========================================================
+      // 2. LADO DIREITO SUPERIOR (INSPIRADO NO TOP GEAR 2)
+      // Tempos Atual e Melhor, Volta Atual/Total e Posição
+      // ========================================================
+      const rightW = 106;
+      const rightX = INTERNAL_WIDTH - rightW - 36;
+
+      // Fundo do Cluster Direito
+      ctx.fillStyle = 'rgba(10, 15, 26, 0.88)';
+      ctx.fillRect(rightX, topY, rightW, clusterH);
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rightX, topY, rightW, clusterH);
+      // Destaque superior em neon
+      ctx.fillStyle = '#00E5FF';
+      ctx.fillRect(rightX, topY, rightW, 1.5);
+
+      // Linha 1: Tempo Atual
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 6.8px monospace';
+      ctx.fillStyle = '#8FA3B8';
+      ctx.fillText('ATUAL', rightX + 6, topY + 12);
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 8.5px monospace';
+      ctx.fillStyle = '#00E5FF';
+      ctx.fillText(this.formatTime(this.currentLapTime), rightX + rightW - 6, topY + 12);
+
+      // Linha 2: Melhor Volta
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 6.8px monospace';
+      ctx.fillStyle = '#8FA3B8';
+      ctx.fillText('MELHOR', rightX + 6, topY + 23);
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 8.5px monospace';
+      ctx.fillStyle = '#FFD700';
+      const bestStr = this.bestLapTime > 0 ? this.formatTime(this.bestLapTime) : '--:--.--';
+      ctx.fillText(bestStr, rightX + rightW - 6, topY + 23);
+
+      // Divisor sutil
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
+      ctx.fillRect(rightX + 6, topY + 28, rightW - 12, 1);
+
+      // Linha 3: Volta Atual e Total
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 7px monospace';
+      ctx.fillStyle = '#94A3B8';
+      ctx.fillText('VOLTA', rightX + 6, topY + 39);
+
+      ctx.textAlign = 'right';
+      const curLap = Math.min(this.player.laps + 1, TOTAL_LAPS);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = (curLap === TOTAL_LAPS) ? '#FF5252' : '#FFFFFF';
+      ctx.fillText(`${curLap}`, rightX + rightW - 19, topY + 39);
+      ctx.font = 'bold 7.5px monospace';
+      ctx.fillStyle = '#64748B';
+      ctx.fillText(`/${TOTAL_LAPS}`, rightX + rightW - 6, topY + 39);
+
+      // Linha 4: Posição na Corrida
+      const ranked = this.getRankedCars();
+      const playerPos = ranked.findIndex(c => c.isPlayer) + 1;
+
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 7px monospace';
+      ctx.fillStyle = '#94A3B8';
+      ctx.fillText('POSIÇÃO', rightX + 6, topY + 51);
+
+      ctx.textAlign = 'right';
+      let posColor = '#FFFFFF';
+      if (playerPos === 1) posColor = '#FFD700';
+      else if (playerPos === 2) posColor = '#E2E8F0';
+      else if (playerPos === 3) posColor = '#F59E0B';
+      else if (playerPos <= 10) posColor = '#00E5FF';
+
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = posColor;
+      ctx.fillText(`${playerPos}º`, rightX + rightW - 20, topY + 51);
+
+      ctx.font = 'bold 7.5px monospace';
+      ctx.fillStyle = '#64748B';
+      ctx.fillText('/20', rightX + rightW - 6, topY + 51);
+
+      // ========================================================
+      // 3. MINIMAPA ORIGINAL PRESERVADO (POSIÇÃO E FORMA)
+      // ========================================================
       const mapBoxW = 58;
       const mapBoxH = 50;
       const mapBoxX = INTERNAL_WIDTH - mapBoxW - 8;
-      const mapBoxY = touchHud ? 31 : (INTERNAL_HEIGHT - mapBoxH - 6);
+      const mapBoxY = touchHud ? 68 : (INTERNAL_HEIGHT - mapBoxH - 6);
 
       ctx.fillStyle = 'rgba(8, 12, 20, 0.84)';
       ctx.fillRect(mapBoxX, mapBoxY, mapBoxW, mapBoxH);
