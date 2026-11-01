@@ -567,7 +567,7 @@
           this.input.lastCanvasClick = null;
 
           // Clique no botão VOLTAR
-          if (click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
+          if (L.btnBack && click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
               click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
             this.audio.playBeep(330, 0.06);
             this.state = 'MODE_SELECT';
@@ -575,37 +575,65 @@
             return;
           }
 
-          // Clique nos cards de pista
-          for (let k = 0; k < L.cards.length; k++) {
-            const c = L.cards[k];
-            if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
-              if (this.selectedQuickTrackIndex === c.i) {
-                this.input.justPressedEnter = true;
-              } else {
-                this.selectedQuickTrackIndex = c.i;
-                this.trackIndex = c.i;
-                this.loadTrack(c.i);
-                this.audio.playBeep(440, 0.06);
-              }
-              break;
-            }
-          }
-
           // Clique no botão CONFIRMAR
-          if (click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
+          if (L.btnConfirm && click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
               click.y >= L.btnConfirm.y && click.y <= L.btnConfirm.y + L.btnConfirm.h) {
             this.input.justPressedEnter = true;
           }
+
+          // Clique na seta lateral PREV (◀)
+          if (L.btnPrev && click.x >= L.btnPrev.x && click.x <= L.btnPrev.x + L.btnPrev.w &&
+              click.y >= L.btnPrev.y && click.y <= L.btnPrev.y + L.btnPrev.h) {
+            this.input.justPressedLeft = true;
+          }
+
+          // Clique na seta lateral NEXT (▶)
+          if (L.btnNext && click.x >= L.btnNext.x && click.x <= L.btnNext.x + L.btnNext.w &&
+              click.y >= L.btnNext.y && click.y <= L.btnNext.y + L.btnNext.h) {
+            this.input.justPressedRight = true;
+          }
+
+          // Clique em qualquer um dos 27 chips de estado da grade
+          if (L.chips) {
+            for (let k = 0; k < L.chips.length; k++) {
+              const c = L.chips[k];
+              if (click.x >= c.x && click.x <= c.x + c.w && click.y >= c.y && click.y <= c.y + c.h) {
+                if (this.selectedQuickTrackIndex === c.i) {
+                  this.input.justPressedEnter = true;
+                } else {
+                  this.selectedQuickTrackIndex = c.i;
+                  this.trackIndex = c.i;
+                  this.loadTrack(c.i);
+                  this.audio.playBeep(440, 0.06);
+                }
+                break;
+              }
+            }
+          }
         }
 
-        if (this.input.justPressedLeft || this.input.justPressedUp) {
+        if (this.input.justPressedLeft) {
           this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex - 1 + TRACK_DEFINITIONS.length) % TRACK_DEFINITIONS.length;
           this.trackIndex = this.selectedQuickTrackIndex;
           this.loadTrack(this.trackIndex);
           this.audio.playBeep(440, 0.05);
         }
-        if (this.input.justPressedRight || this.input.justPressedDown) {
+        if (this.input.justPressedRight) {
           this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex + 1) % TRACK_DEFINITIONS.length;
+          this.trackIndex = this.selectedQuickTrackIndex;
+          this.loadTrack(this.trackIndex);
+          this.audio.playBeep(440, 0.05);
+        }
+        if (this.input.justPressedUp) {
+          // Salta 9 posições (1 fileira acima na grade 3x9)
+          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex - 9 + TRACK_DEFINITIONS.length) % TRACK_DEFINITIONS.length;
+          this.trackIndex = this.selectedQuickTrackIndex;
+          this.loadTrack(this.trackIndex);
+          this.audio.playBeep(440, 0.05);
+        }
+        if (this.input.justPressedDown) {
+          // Salta 9 posições (1 fileira abaixo na grade 3x9)
+          this.selectedQuickTrackIndex = (this.selectedQuickTrackIndex + 9) % TRACK_DEFINITIONS.length;
           this.trackIndex = this.selectedQuickTrackIndex;
           this.loadTrack(this.trackIndex);
           this.audio.playBeep(440, 0.05);
@@ -2221,12 +2249,81 @@
         return;
       }
 
-      if (def && def.id === 'serra') {
+      if (typeof MonumentArt !== 'undefined' && MonumentArt.renderSkyLandmark) {
+        this.renderSkyBase(ctx, def, horizonY, E, S, curveShift);
+        MonumentArt.renderSkyLandmark(ctx, def, scroll, curveShift, horizonY, E, S);
+      } else if (def && def.id === 'serra') {
         this.renderSkySerra(ctx, def, scroll, curveShift, horizonY, E, S);
       } else if (def && def.id === 'noite') {
         this.renderSkyNoite(ctx, def, scroll, curveShift, horizonY, E, S);
       } else {
         this.renderSkyBrasil(ctx, def, scroll, curveShift, horizonY, E, S);
+      }
+    }
+
+    renderSkyBase(ctx, def, horizonY, E, S, curveShift) {
+      const nowSec = performance.now() * 0.003;
+      const isNight = S.night > 0.28;
+      const isDusk = S.dusk > 0.25;
+
+      // 1. Céu dinâmico conforme E.css e E.s
+      const grad = ctx.createLinearGradient(0, -20, 0, horizonY);
+      grad.addColorStop(0, E.css.skyTop);
+      grad.addColorStop(0.45, E.css.skyMid);
+      grad.addColorStop(1.0, E.css.skyBottom);
+      ctx.fillStyle = grad;
+      ctx.fillRect(-20, -20, INTERNAL_WIDTH + 40, horizonY + 20);
+
+      if (isNight) {
+        // Microestrelas cintilantes no céu noturno
+        for (let s = 8; s < INTERNAL_WIDTH; s += 22) {
+          const sx = (s * 19) % INTERNAL_WIDTH;
+          const sy = (s * 11) % Math.floor(horizonY * 0.38);
+          const tw = 0.35 + 0.65 * Math.abs(Math.sin(nowSec + s));
+          ctx.fillStyle = `rgba(240, 248, 255, ${tw.toFixed(2)})`;
+          ctx.fillRect(sx, sy, (s % 3 === 0 ? 1.5 : 1), (s % 3 === 0 ? 1.5 : 1));
+        }
+
+        // Lua prateada
+        const moonX = INTERNAL_WIDTH * 0.80 - curveShift * 0.3;
+        const moonY = 24;
+        const mGlow = ctx.createRadialGradient(moonX, moonY, 4, moonX, moonY, 28);
+        mGlow.addColorStop(0, 'rgba(215, 238, 255, 0.45)');
+        mGlow.addColorStop(1, 'rgba(180, 220, 255, 0)');
+        ctx.fillStyle = mGlow;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F8FAFC';
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 11, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (S.sun > 0.1) {
+        // Sol diurno ou crepuscular sobre o circuito
+        const sunX = INTERNAL_WIDTH * 0.72 - curveShift * 0.35;
+        const sunY = S.sunY || (isDusk ? horizonY - 14 : 26);
+        const sSize = S.sunSize || 1.0;
+        const sGlow = ctx.createRadialGradient(sunX, sunY, 3, sunX, sunY, 38 * sSize);
+        sGlow.addColorStop(0, E.css.sunCore || '#FFFDE7');
+        sGlow.addColorStop(0.4, E.css.sunGlow || '#FFEE58');
+        sGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = sGlow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 38 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 11 * sSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nuvens suaves
+        ctx.fillStyle = isDusk ? 'rgba(255, 170, 80, 0.30)' : 'rgba(255, 255, 255, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(sunX - 45, sunY - 4, 34, 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX - 35, sunY - 8, 22, 9, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 50, sunY + 6, 42, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(sunX + 60, sunY + 3, 26, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
@@ -3509,6 +3606,11 @@
       ctx.ellipse(0, 0, size * 0.34, Math.max(1.2, size * 0.08), 0, 0, Math.PI * 2);
       ctx.fill();
 
+      // Renderiza monumentos e pontos turísticos das capitais brasileiras
+      if (typeof MonumentArt !== 'undefined' && MonumentArt.renderScenery) {
+        MonumentArt.renderScenery(ctx, scenery.type, size, isNight, isDusk);
+      }
+
       if (scenery.type === 'timing_tower') {
         // Torre alta de cronometragem de autódromo estilo Interlagos / Suzuka
         const tw = size * 0.60;
@@ -4746,26 +4848,68 @@
       return { touchSafe, cardW, cardH, cardY, card0, card1, btnBack, btnConfirm };
     }
 
-    // Geometria da tela "Escolha de Pista" para Corrida Rápida
+    // Geometria da tela "Escolha de Pista" com as 27 capitais do Brasil
     getTrackSelectLayout() {
       const touchSafe = this.input.touchControlsVisible;
-      const cardW = touchSafe ? 104 : 112;
-      const cardH = touchSafe ? 122 : 138;
-      const cardY = touchSafe ? 34 : 36;
-      const gap = touchSafe ? 6 : 8;
-      const totalW = cardW * 3 + gap * 2;
-      const startX = Math.round((INTERNAL_WIDTH - totalW) / 2);
-      const cards = [
-        { x: startX, y: cardY, w: cardW, h: cardH, i: 0 },
-        { x: startX + cardW + gap, y: cardY, w: cardW, h: cardH, i: 1 },
-        { x: startX + (cardW + gap) * 2, y: cardY, w: cardW, h: cardH, i: 2 }
-      ];
-      const btnW = touchSafe ? 86 : 98;
-      const btnH = touchSafe ? 18 : 20;
-      const btnY = touchSafe ? 168 : 184;
-      const btnBack = { x: startX, y: btnY, w: btnW, h: btnH };
-      const btnConfirm = { x: startX + totalW - btnW, y: btnY, w: btnW, h: btnH };
-      return { touchSafe, cardW, cardH, cardY, cards, btnBack, btnConfirm };
+      const W = INTERNAL_WIDTH;
+      const H = INTERNAL_HEIGHT;
+
+      // Grade dos 27 circuitos das capitais (3 linhas x 9 colunas)
+      const cols = 9;
+      const rows = 3;
+      const gapX = touchSafe ? 2 : 2.5;
+      const gapY = 2;
+      const maxGridW = touchSafe ? Math.min(W - 14, 306) : Math.min(W - 20, 312);
+      const chipW = Math.floor((maxGridW - (cols - 1) * gapX) / cols);
+      const chipH = touchSafe ? 9.5 : 10.5;
+      const gridW = cols * chipW + (cols - 1) * gapX;
+      const gridH = rows * chipH + (rows - 1) * gapY;
+      const gridX = Math.round((W - gridW) / 2);
+      const gridY = touchSafe ? 15 : 16;
+
+      const chips = [];
+      for (let i = 0; i < TRACK_DEFINITIONS.length; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        chips.push({
+          x: gridX + col * (chipW + gapX),
+          y: gridY + row * (chipH + gapY),
+          w: chipW,
+          h: chipH,
+          i: i
+        });
+      }
+
+      const gridBottom = gridY + gridH;
+
+      // Card central do showroom da pista / capital
+      const bW = touchSafe ? Math.min(W - 16, 280) : Math.min(W - 24, 300);
+      const bH = touchSafe ? 116 : 126;
+      const bX = Math.round((W - bW) / 2);
+      const bY = gridBottom + (touchSafe ? 4 : 5);
+
+      // Setas de navegação lateral
+      const arrowW = 16;
+      const arrowH = 26;
+      const btnPrev = { x: bX - arrowW - 2, y: bY + (bH - arrowH) / 2, w: arrowW, h: arrowH };
+      const btnNext = { x: bX + bW + 2, y: bY + (bH - arrowH) / 2, w: arrowW, h: arrowH };
+
+      const btnW = touchSafe ? 92 : 108;
+      const btnH = touchSafe ? 17 : 19;
+      const btnY = bY + bH + (touchSafe ? 5 : 6);
+      const btnBack = {
+        x: Math.round(bX),
+        y: btnY,
+        w: btnW,
+        h: btnH
+      };
+      const btnConfirm = {
+        x: Math.round(bX + bW - btnW),
+        y: btnY,
+        w: btnW,
+        h: btnH
+      };
+      return { touchSafe, bW, bH, bX, bY, chips, btnPrev, btnNext, btnBack, btnConfirm };
     }
 
     // Geometria compartilhada da Garagem com seletor dos 20 carros em 2 fileiras x 10 colunas
@@ -5170,163 +5314,192 @@
       const L = this.getTrackSelectLayout();
       const touchSafe = L.touchSafe;
       const now = performance.now();
+      const track = TRACK_DEFINITIONS[this.selectedQuickTrackIndex] || TRACK_DEFINITIONS[0];
 
-      // Fundo escuro translúcido permitindo ver o circuito selecionado rolar atrás da tela!
-      ctx.fillStyle = 'rgba(6, 9, 18, 0.80)';
+      // Fundo escuro translúcido permitindo ver o circuito e monumentos rolando em 3D atrás!
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.82)';
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
 
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00E5FF';
-      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
-      ctx.fillText('CORRIDA RÁPIDA — CIRCUITO', INTERNAL_WIDTH / 2, touchSafe ? 19 : 23);
+      ctx.font = touchSafe ? 'bold 9.5px monospace' : 'bold 10.5px monospace';
+      ctx.fillText('CIRCUITOS DO BRASIL — 27 CAPITAIS', INTERNAL_WIDTH / 2, touchSafe ? 11 : 12);
 
+      // 1. Grade dos 27 Chips de Estados (3 linhas x 9 colunas)
+      for (let c = 0; c < L.chips.length; c++) {
+        const chip = L.chips[c];
+        const isSel = (this.selectedQuickTrackIndex === chip.i);
+        const tDef = TRACK_DEFINITIONS[chip.i];
+        const stateTxt = tDef.stateCode || (chip.i + 1);
+
+        ctx.fillStyle = isSel ? '#00E5FF' : 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
+
+        ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(70, 90, 120, 0.4)';
+        ctx.lineWidth = isSel ? 1.2 : 0.6;
+        ctx.strokeRect(chip.x, chip.y, chip.w, chip.h);
+
+        ctx.fillStyle = isSel ? '#041019' : '#CBD5E1';
+        ctx.font = 'bold 5.8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(stateTxt, chip.x + chip.w / 2, chip.y + chip.h * 0.75);
+      }
+
+      // 2. Card Central da Capital & Monumento
+      const { bX, bY, bW, bH } = L;
+      const cardGrad = ctx.createLinearGradient(bX, bY, bX, bY + bH);
+      cardGrad.addColorStop(0, 'rgba(14, 22, 38, 0.95)');
+      cardGrad.addColorStop(1, 'rgba(8, 12, 22, 0.97)');
+      ctx.fillStyle = cardGrad;
+      ctx.fillRect(bX, bY, bW, bH);
+
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(bX, bY, bW, bH);
+
+      // Faixa superior colorida do card
+      ctx.fillStyle = '#00E5FF';
+      ctx.fillRect(bX + 2, bY + 2, bW - 4, 2.5);
+
+      // Título: [ 01 / 27 ]  CAPITAL • UF
+      const numStr = (this.selectedQuickTrackIndex + 1 < 10 ? '0' : '') + (this.selectedQuickTrackIndex + 1);
+      ctx.textAlign = 'center';
       ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.8px monospace';
-      ctx.fillText('ESCOLHA O AUTÓDROMO DA SUA CORRIDA AVULSA', INTERNAL_WIDTH / 2, touchSafe ? 29 : 33);
+      ctx.font = 'bold 8px monospace';
+      ctx.fillText(`[ ${numStr} / 27 ]  ${track.name}`, bX + bW / 2, bY + 13);
 
-      const trackInfo = [
-        {
-          id: 0,
-          flag: '🇧🇷',
-          name: 'BRASIL GP',
-          sub: 'INTERLAGOS • SP',
-          themeTag: 'CREPÚSCULO',
-          color: '#FEDD00',
-          lines: [
-            '• 3 VOLTAS',
-            '• PÔR DO SOL / ORLA',
-            '• S DO SENNA & RETAS'
-          ]
-        },
-        {
-          id: 1,
-          flag: '🏔️',
-          name: 'SERRA BRASIL',
-          sub: 'CATARINENSE • SC',
-          themeTag: 'MONTANHA',
-          color: '#F97316',
-          lines: [
-            '• 3 VOLTAS',
-            '• VIADUTOS ELEVADOS',
-            '• TÚNEL DE ROCHA'
-          ]
-        },
-        {
-          id: 2,
-          flag: '🌃',
-          name: 'NOITE URBANA',
-          sub: 'CYBER CITY GP',
-          themeTag: 'NOITE NEON',
-          color: '#00E5FF',
-          lines: [
-            '• 3 VOLTAS',
-            '• ARRANHA-CÉUS & LED',
-            '• FARÓIS & TÚNEL METRO'
-          ]
+      // Subtítulo do Monumento
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 6.2px monospace';
+      ctx.fillText(`${track.flag} MONUMENTO: ${track.monument}`, bX + bW / 2, bY + 22);
+
+      // Linha divisória
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+      ctx.fillRect(bX + 8, bY + 26, bW - 16, 1);
+
+      // Lado Esquerdo do Card: Minimapa da Pista
+      const mapBoxW = 75;
+      const mapBoxH = 65;
+      const mapX = bX + 10;
+      const mapY = bY + 31;
+
+      ctx.fillStyle = 'rgba(4, 8, 16, 0.75)';
+      ctx.fillRect(mapX, mapY, mapBoxW, mapBoxH);
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(mapX, mapY, mapBoxW, mapBoxH);
+
+      // Renderiza o traçado vetorial do minimapa
+      if (this.track && this.track.mapPoints) {
+        const pts = this.track.mapPoints;
+        ctx.strokeStyle = '#263238';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const mx = mapX + 5 + pts[i].x * (mapBoxW - 10);
+          const my = mapY + 5 + pts[i].z * (mapBoxH - 10);
+          if (i === 0) ctx.moveTo(mx, my);
+          else ctx.lineTo(mx, my);
         }
-      ];
+        ctx.closePath();
+        ctx.stroke();
 
-      for (let t = 0; t < L.cards.length; t++) {
-        const box = L.cards[t];
-        const info = trackInfo[t];
-        const isSelected = (this.selectedQuickTrackIndex === t);
-        const { x, y, w, h } = box;
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
 
-        // Fundo do card
-        const cardGrad = ctx.createLinearGradient(x, y, x, y + h);
-        if (isSelected) {
-          cardGrad.addColorStop(0, 'rgba(18, 30, 52, 0.96)');
-          cardGrad.addColorStop(1, 'rgba(10, 16, 30, 0.98)');
-        } else {
-          cardGrad.addColorStop(0, 'rgba(12, 16, 26, 0.88)');
-          cardGrad.addColorStop(1, 'rgba(6, 9, 16, 0.92)');
-        }
-        ctx.fillStyle = cardGrad;
-        ctx.fillRect(x, y, w, h);
-
-        if (isSelected) {
-          ctx.strokeStyle = info.color;
-          ctx.lineWidth = 1.8;
-          ctx.strokeRect(x, y, w, h);
-
-          ctx.fillStyle = info.color;
-          ctx.fillRect(x + 2, y + 2, w - 4, 3);
-        } else {
-          ctx.strokeStyle = 'rgba(70, 90, 120, 0.4)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x, y, w, h);
-        }
-
-        // Tag superior
-        ctx.fillStyle = isSelected ? info.color : '#78909C';
-        ctx.font = 'bold 6px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`[ ${info.themeTag} ]`, x + w / 2, y + 13);
-
-        // Bandeira / Ícone
-        ctx.font = '16px monospace';
-        ctx.fillText(info.flag, x + w / 2, y + 33);
-
-        // Nome da pista
-        ctx.fillStyle = isSelected ? '#FFFFFF' : '#B0BEC5';
-        ctx.font = 'bold 8px monospace';
-        ctx.fillText(info.name, x + w / 2, y + 49);
-
-        // Localização / Subtítulo
-        ctx.fillStyle = isSelected ? info.color : '#78909C';
-        ctx.font = 'bold 6.2px monospace';
-        ctx.fillText(info.sub, x + w / 2, y + 59);
-
-        // Linha divisória
-        ctx.fillStyle = isSelected ? info.color : 'rgba(100, 120, 150, 0.3)';
-        ctx.fillRect(x + 8, y + 64, w - 16, 1);
-
-        // Linhas de detalhe
-        ctx.textAlign = 'left';
-        ctx.font = '6.4px monospace';
-        ctx.fillStyle = isSelected ? '#E2E8F0' : '#8898AA';
-        for (let l = 0; l < info.lines.length; l++) {
-          ctx.fillText(info.lines[l], x + 8, y + 78 + l * 13);
-        }
-
-        // Rodapé do card
-        ctx.textAlign = 'center';
-        if (isSelected) {
-          const blink = Math.floor(now / 320) % 2 === 0;
-          ctx.fillStyle = blink ? info.color : '#FFFFFF';
-          ctx.font = 'bold 6.8px monospace';
-          ctx.fillText('▶ ESCOLHIDA ◀', x + w / 2, y + h - 10);
-        } else {
-          ctx.fillStyle = '#64748B';
-          ctx.font = '6px monospace';
-          ctx.fillText('TOQUE P/ ESCOLHER', x + w / 2, y + h - 10);
+        // Ponto de largada / chegada (Verde)
+        if (pts.length > 0) {
+          const startX = mapX + 5 + pts[0].x * (mapBoxW - 10);
+          const startY = mapY + 5 + pts[0].z * (mapBoxH - 10);
+          ctx.fillStyle = '#00E676';
+          ctx.beginPath();
+          ctx.arc(startX, startY, 2.5, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
 
-      // Botões inferiores: VOLTAR e CONFIRMAR
+      // Distância do circuito abaixo do mapa
+      const kmStr = (this.track ? (this.track.totalLength / 1000).toFixed(1) : '3.2') + ' KM';
+      ctx.fillStyle = '#FEDD00';
+      ctx.font = 'bold 5.8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`CIRCUITO: ${kmStr}`, mapX + mapBoxW / 2, mapY + mapBoxH + 9);
+
+      // Lado Direito do Card: Detalhes, Vibe e Monumento
+      const infoX = bX + mapBoxW + 18;
+      ctx.textAlign = 'left';
+
+      // Linha 1: Região / Vibe
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = 'bold 6.2px monospace';
+      ctx.fillText(`• ESTILO: ${track.themeTag}`, infoX, bY + 38);
+
+      // Linha 2: Clima Padrão
+      ctx.fillStyle = '#F8FAFC';
+      ctx.font = '6px monospace';
+      ctx.fillText(`• CLIMA PADRÃO: ${track.theme}`, infoX, bY + 50);
+
+      // Linha 3: Voltas
+      ctx.fillStyle = '#E2E8F0';
+      ctx.fillText(`• PROVA: ${TOTAL_LAPS} VOLTAS`, infoX, bY + 62);
+
+      // Linha 4: Destaque Arquitetônico / Ponto Turístico
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 6px monospace';
+      ctx.fillText(`• PONTO TURÍSTICO:`, infoX, bY + 74);
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '5.6px monospace';
+      ctx.fillText(`${track.monument}`, infoX, bY + 84);
+
+      // Tag de status selecionado
+      const blink = Math.floor(now / 300) % 2 === 0;
+      ctx.fillStyle = blink ? '#00E5FF' : '#FFFFFF';
+      ctx.font = 'bold 6.2px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('▶ CIRCUITO PRONTO PARA CORRER ◀', bX + bW / 2, bY + bH - 6);
+
+      // Setas laterais de navegação ◀ e ▶
+      const drawSideArrow = (btn, isLeft) => {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+        ctx.fillStyle = '#00E5FF';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(isLeft ? '◀' : '▶', btn.x + btn.w / 2, btn.y + btn.h / 2 + 3.5);
+      };
+      if (L.btnPrev) drawSideArrow(L.btnPrev, true);
+      if (L.btnNext) drawSideArrow(L.btnNext, false);
+
+      // Botões inferiores: VOLTAR e ESCOLHER CARRO
       const btnB = L.btnBack;
       if (btnB) {
-        ctx.fillStyle = '#1E293B';
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
         ctx.fillRect(btnB.x, btnB.y, btnB.w, btnB.h);
         ctx.strokeStyle = '#EF4444';
         ctx.lineWidth = 1;
         ctx.strokeRect(btnB.x, btnB.y, btnB.w, btnB.h);
         ctx.fillStyle = '#EF4444';
         ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.5px monospace';
-        ctx.fillText('◀ VOLTAR', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 2.5);
+        ctx.textAlign = 'center';
+        ctx.fillText('◀ VOLTAR [B]', btnB.x + btnB.w / 2, btnB.y + btnB.h / 2 + 2.5);
       }
 
       const btnC = L.btnConfirm;
       if (btnC) {
-        ctx.fillStyle = '#065F46';
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
         ctx.fillRect(btnC.x, btnC.y, btnC.w, btnC.h);
         ctx.strokeStyle = '#10B981';
         ctx.lineWidth = 1.2;
         ctx.strokeRect(btnC.x, btnC.y, btnC.w, btnC.h);
         ctx.fillStyle = '#FFFFFF';
         ctx.font = touchSafe ? 'bold 7.2px monospace' : 'bold 8px monospace';
-        ctx.fillText('ESCOLHER CARRO ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 2.5);
+        ctx.textAlign = 'center';
+        ctx.fillText('ESCOLHER CARRO [A] ▶', btnC.x + btnC.w / 2, btnC.y + btnC.h / 2 + 2.5);
       }
 
       ctx.restore();
