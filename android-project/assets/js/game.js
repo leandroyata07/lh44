@@ -74,9 +74,9 @@
       this.audio = new AudioManager();
       this.input = new InputManager(
         () => {
-          this.audio.init();
-          if (this.state === 'MENU' && this.audio) {
-            this.audio.playTitleMusic();
+          if (this.audio) {
+            const isMenuState = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'NAME_INPUT');
+            this.audio.unlockAudio(isMenuState);
           }
         },
         () => this.syncCanvasResolution()
@@ -138,6 +138,30 @@
       this.endingRank = 1;
       this.endingFireworks = [];
       this.confetti = [];
+      this.showFPS = false;
+      try { this.showFPS = (localStorage.getItem('lh44_show_fps') === 'true'); } catch (_) {}
+      this.fps = 60;
+      this.fpsFrames = 0;
+      this.fpsLastTime = performance.now();
+
+      const fpsBtn = document.getElementById('fps-toggle-btn');
+      if (fpsBtn) {
+        const updateFpsBtn = () => {
+          fpsBtn.textContent = this.showFPS ? 'FPS: ON' : 'FPS: OFF';
+          fpsBtn.style.color = this.showFPS ? '#69F0AE' : '#90A4AE';
+          fpsBtn.style.borderColor = this.showFPS ? '#00E676' : '#546E7A';
+        };
+        updateFpsBtn();
+        const toggleFps = (e) => {
+          e.stopPropagation();
+          this.showFPS = !this.showFPS;
+          try { localStorage.setItem('lh44_show_fps', this.showFPS ? 'true' : 'false'); } catch (_) {}
+          updateFpsBtn();
+          fpsBtn.blur();
+        };
+        fpsBtn.addEventListener('click', toggleFps);
+        fpsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); toggleFps(e); }, { passive: false });
+      }
       this.fixedStep = 1 / 60;
       this.accumulator = 0;
       this.initSeasonRoster();
@@ -184,18 +208,14 @@
       this.updateEnv(0.016);
       const onFirstUserGesture = () => {
         if (this.audio) {
-          if (!this.audio.ctx) this.audio.init();
-          if (this.audio.ctx && this.audio.ctx.state === 'suspended') {
-            this.audio.ctx.resume().catch(() => {});
-          }
-          if (this.state === 'MENU') {
-            this.audio.playTitleMusic();
-          }
+          const isMenuState = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'NAME_INPUT');
+          this.audio.unlockAudio(isMenuState);
         }
       };
-      window.addEventListener('pointerdown', onFirstUserGesture, { once: true });
-      window.addEventListener('keydown', onFirstUserGesture, { once: true });
-      window.addEventListener('touchstart', onFirstUserGesture, { once: true });
+      window.addEventListener('pointerdown', onFirstUserGesture, { passive: true });
+      window.addEventListener('keydown', onFirstUserGesture, { passive: true });
+      window.addEventListener('touchstart', onFirstUserGesture, { passive: true });
+      window.addEventListener('click', onFirstUserGesture, { passive: true });
       requestAnimationFrame(this.boundGameLoop);
     }
 
@@ -336,6 +356,7 @@
         bot.z = 1600 + rowFromBack * GRID_ROW_SPACING + (isLeft ? GRID_STAGGER_Z : 0);
         bot.x = isLeft ? -GRID_COL_X : GRID_COL_X;
         bot.targetX = bot.x;
+        bot.gridStartX = bot.x;
         bot.speed = 0;
         bot.laps = 0;
         bot.totalDistance = bot.z;
@@ -367,6 +388,7 @@
       this.player.z = 1600;
       this.player.x = GRID_COL_X;
       this.player.targetX = GRID_COL_X;
+      this.player.gridStartX = GRID_COL_X;
       this.player.speed = 0;
       this.player.laps = 0;
       this.player.totalDistance = this.player.z;
@@ -418,6 +440,7 @@
         this.audio.stopTitleMusic();
         this.audio.musicPlaying = true;
         this.audio.restartMusic();
+        this.audio.startRaceEffects();
       }
     }
 
@@ -525,7 +548,6 @@
       if (this.state === 'MENU') {
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
-        this.audio.playTitleMusic();
         // Câmera avançando continuamente na pista 3D ao vivo em velocidade clássica fluida
         this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
         this.cameraRoll = 0;
@@ -566,7 +588,6 @@
       if (this.state === 'MODE_SELECT') {
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
-        this.audio.playTitleMusic();
         this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
         this.cameraRoll = 0;
         this.shake = 0;
@@ -635,7 +656,6 @@
       if (this.state === 'DIFFICULTY_SELECT') {
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
-        this.audio.playTitleMusic();
         this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
         this.cameraRoll = 0;
         this.shake = 0;
@@ -712,7 +732,6 @@
       if (this.state === 'TRACK_SELECT') {
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
-        this.audio.playTitleMusic();
         this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
         this.cameraRoll = 0;
         this.shake = 0;
@@ -1613,10 +1632,10 @@
         const trailBrakeRate = (125 + model.braking * 95) * brakeInput * dt;
         p.speed = Math.max(0, p.speed - trailBrakeRate);
       } else if (isAccelerating) {
-        // Cadência de arrancada proporcional ao carro, levando ~4 a 6 segundos para atingir a velocidade máxima
-        const basePower = p.isNitro ? (75 + effectiveAccel * 65) : (44 + effectiveAccel * 48);
+        // Cadência de arrancada esportiva progressiva (~6 a 8s para velocidade final)
+        const basePower = p.isNitro ? (65 + effectiveAccel * 55) : (24 + effectiveAccel * 26);
         const rate = basePower * torqueFactor * throttleInput * dt;
-        const suctionPull = (40 + model.acceleration * 50) * slipInt * dt;
+        const suctionPull = (32 + model.acceleration * 38) * slipInt * dt;
         // Velocidade alvo correspondente à pressão no gatilho R2 (permite dosar velocidade de cruzeiro)
         const targetPartialSpeed = p.isNitro ? dynamicMaxSpeed : dynamicMaxSpeed * (0.35 + 0.65 * throttleInput);
         if (p.speed < targetPartialSpeed) {
@@ -1700,9 +1719,9 @@
         const centrifugal = (playerSeg.curve * (speedRatio * speedRatio) * 0.40) / model.centrifugalResistance;
         p.x -= centrifugal * dt;
       }
-      if (Math.abs(p.bumpVelX) > 0.005) {
+      if (Math.abs(p.bumpVelX) > 0.003) {
         p.x += p.bumpVelX * dt;
-        p.bumpVelX *= Math.exp(-11 * dt);
+        p.bumpVelX *= Math.exp(-6.5 * dt);
       } else {
         p.bumpVelX = 0;
       }
@@ -1774,6 +1793,9 @@
         if (p.laps >= TOTAL_LAPS) {
           p.finishTime = this.raceTimer;
           p.finished = true;
+          this.lapBannerTimer = 0;
+          this.isLastLapBanner = false;
+          this.lapBannerText = '';
           if (this.radio) this.radio.speak("Bandeira quadriculada! Corrida finalizada!", true);
 
           // Inicia transição de finalização: aguarda 3 segundos com câmera parada e fade até a classificação
@@ -1936,19 +1958,23 @@
           }
         }
 
-        // Traçado e Tangência dos Bots
-        if (this.raceTimer > 2.8) {
+        // Traçado, Tangência e Estratégia de Vácuo/Estilingue dos Bots
+        if (this.raceTimer < 3.2) {
+          // Nos primeiros 3.2s após a largada, os bots mantêm estritamente a sua própria coluna do grid
+          // sem cruzar a pista e sem trocar de lado com os outros carros
+          bot.targetX = (bot.gridStartX !== undefined) ? bot.gridStartX : bot.x;
+        } else {
           if (botSeg.curve !== 0) {
             const apexX = Math.max(-0.68, Math.min(0.68, -botSeg.curve * 0.22));
-            bot.targetX += (apexX - bot.targetX) * 1.4 * dt;
-          } else if (bot.inSlipstream && leadCar && leadDist > 420) {
-            // Em vácuo distante: o bot se posiciona atrás do carro da frente para sugar velocidade!
-            bot.targetX += (leadCar.x - bot.targetX) * 2.0 * dt;
+            bot.targetX += (apexX - bot.targetX) * 1.5 * dt;
+          } else if (bot.inSlipstream && leadCar && leadDist > 140) {
+            // Em vácuo a média distância: o bot alinha atrás do carro da frente para sugar velocidade!
+            bot.targetX += (leadCar.x - bot.targetX) * 2.6 * dt;
           } else {
             bot.laneChangeTimer -= dt;
             if (bot.laneChangeTimer <= 0) {
-              bot.laneChangeTimer = 2.4 + Math.random() * 3.2;
-              bot.targetX = (Math.random() - 0.5) * 1.24;
+              bot.laneChangeTimer = 2.8 + Math.random() * 3.5;
+              bot.targetX = (Math.random() - 0.5) * 1.20;
             }
           }
         }
@@ -1958,22 +1984,36 @@
           bot.bumpBoostTimer -= dt;
         }
 
-        // Manobra inteligente de ultrapassagem / desvio antecipada para evitar batidas
+        // Manobra inteligente: evitar batidas de lado e traseira + ultrapassagem via estilingue
         for (let j = 0; j < this.cars.length; j++) {
           if (i === j) continue;
           const other = this.cars[j];
           const distZ = this.shortestDeltaZ(other.z, bot.z);
-          if (distZ > 0 && distZ < 450 && Math.abs(other.x - bot.x) < 0.42) {
+          const latDiff = Math.abs(other.x - bot.x);
+
+          // 1. CARROS EMPARELHADOS LATERALMENTE (|distZ| <= 55):
+          // Afasta ativamente durante a corrida para evitar contato lateral ou esfregar porta!
+          if (this.raceTimer > 3.0 && Math.abs(distZ) <= 55 && latDiff < 0.54) {
+            const avoidDir = (bot.x >= other.x) ? 1 : -1;
+            bot.targetX += avoidDir * (0.54 - latDiff) * 3.2 * dt;
+            bot.targetX = Math.max(-0.85, Math.min(0.85, bot.targetX));
+          }
+
+          // 2. CARRO À FRENTE NO MESMO TRILHO (distZ > 0):
+          if (distZ > 0 && distZ < 450 && latDiff < 0.44) {
             blocked = true;
-            if (this.raceTimer > 1.6) {
-              // Slingshot: puxa para a lateral livre com folga para ultrapassar sem bater
-              const passDir = (other.x > 0) ? -0.46 : 0.46;
-              bot.targetX = Math.max(-0.78, Math.min(0.78, other.x + passDir));
+            if (this.raceTimer > 2.8) {
+              // Estilingue (Slingshot): quando próximo, puxa com firmeza para a pista livre
+              // ultrapassando sem bater na traseira!
+              const passDir = (other.x >= 0) ? -0.54 : 0.54;
+              bot.targetX = Math.max(-0.80, Math.min(0.80, other.x + passDir));
+              // Aciona o benefício do slingshot para impulsionar a ultrapassagem
+              bot.slipstreamDecayTimer = 1.2;
             }
-            if (distZ < 120 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
-              targetSpeed = Math.min(targetSpeed, other.speed * 0.94);
+            // Se estiver muito próximo e sem espaço para passar, alivia o acelerador
+            if (distZ < 90 && bot.bumpBoostTimer <= 0 && !bot.isNitro) {
+              targetSpeed = Math.min(targetSpeed, other.speed * 0.92);
             }
-            break;
           }
         }
 
@@ -1988,9 +2028,11 @@
             const botAirDrag = Math.pow(Math.min(1.0, botSpeedRatio), 1.6) * 0.58;
             const botTorque = Math.max(0.32, 1.28 - botAirDrag);
             const nitroAccel = bot.isNitro ? 1.75 : (bot.nitroDecayTimer > 0 ? (1.0 + 0.75 * (bot.nitroDecayTimer / 3.0)) : 1.0);
-            const accelMul = nitroAccel + (1.15 * (bot.slipstreamIntensity || 0));
-            const launchRate = (44 + bot.model.acceleration * 48) * botTorque * accelMul * dt;
-            const botSuctionPull = (40 + bot.model.acceleration * 50) * (bot.slipstreamIntensity || 0) * dt;
+            const accelMul = nitroAccel + (1.10 * (bot.slipstreamIntensity || 0));
+            // Cadência de arrancada esportiva equilibrada para os bots (~6 a 8s para velocidade máxima)
+            const baseBotPower = bot.isNitro ? (65 + bot.model.acceleration * 55) : (24 + bot.model.acceleration * 26);
+            const launchRate = baseBotPower * botTorque * accelMul * dt;
+            const botSuctionPull = (32 + bot.model.acceleration * 38) * (bot.slipstreamIntensity || 0) * dt;
             bot.speed = Math.min(bot.speed + launchRate + botSuctionPull, targetSpeed);
           } else if (bot.bumpBoostTimer <= 0 && !bot.isNitro) {
             const botExcess = bot.speed - targetSpeed;
@@ -2005,7 +2047,21 @@
           }
         }
 
-        bot.targetX = Math.max(-0.80, Math.min(0.80, bot.targetX));
+        if (bot.bumpVelX) {
+          if (Math.abs(bot.bumpVelX) > 0.003) {
+            bot.x += bot.bumpVelX * dt;
+            bot.bumpVelX *= Math.exp(-6.0 * dt);
+          } else {
+            bot.bumpVelX = 0;
+          }
+        }
+        if (Math.abs(bot.x) > 1.0) {
+          // Na grama, desacelera suavemente por atrito e busca retornar a pista
+          bot.targetX = (bot.x > 0 ? 0.70 : -0.70);
+          bot.speed = Math.max(40, bot.speed - 90 * dt);
+        } else {
+          bot.targetX = Math.max(-0.80, Math.min(0.80, bot.targetX));
+        }
         const prevBotX = bot.x;
         bot.x += (bot.targetX - bot.x) * 2.4 * dt;
 
@@ -2037,90 +2093,100 @@
         if (bot.isPlayer) continue;
         if (this.finishingRace) continue; // Após bandeirar, o carro do jogador desacelera em segurança sem colisão
 
-        // dz < 0: bot esta a frente do jogador | dz > 0: bot esta atras do jogador
+        // dz < 0: bot está à frente do jogador | dz > 0: bot está atrás do jogador
         const dz = this.shortestDeltaZ(p.z, bot.z);
         const dx = p.x - bot.x;
         const absDx = Math.abs(dx);
 
-        // Largura fisica real do carro na pista: 0.385 (impede que o carro passe por dentro!)
-        const COLLISION_WIDTH = 0.385;
+        // Largura física real dos carros na pista (impede que atravessem um por dentro do outro)
+        const COLLISION_WIDTH = 0.44;
 
-        // Ignora carros fora do alcance visual e fisico
-        if (dz <= -85 || dz >= 65 || absDx >= COLLISION_WIDTH || p.collisionCooldown > 0) continue;
+        // Ignora carros fora do alcance visual e físico
+        if (dz <= -85 || dz >= 65 || absDx >= COLLISION_WIDTH) continue;
 
         let didCollide = false;
 
-        if (dz <= -26) {
+        if (dz <= -46) {
           // ========================================================
-          // 1. COLISAO TRASEIRA (ESTILO TOP GEAR):
-          // Jogador bateu na traseira do rival a frente!
+          // 1. COLISÃO TRASEIRA (ESTILO TOP GEAR):
+          // Jogador bateu na traseira do rival à frente!
           // O jogador perde velocidade (bate no "muro") e o rival ganha impulso para frente!
           // ========================================================
           didCollide = true;
           const speedDiff = Math.max(0, p.speed - bot.speed);
 
-          // Jogador perde velocidade significativa e eh contido atras do rival
-          p.speed = Math.max(30, Math.min(p.speed - 42 - speedDiff * 0.45, bot.speed * 0.86));
-          p.z = this.wrapZ(bot.z - 46);
+          // Jogador perde velocidade significativa e é contido atrás do rival
+          p.speed = Math.max(30, Math.min(p.speed - 36 - speedDiff * 0.45, bot.speed * 0.88));
+          p.z = this.wrapZ(bot.z - 48);
 
           // Rival recebe um impulso direto para frente (estilo Top Gear)
-          const forwardImpulse = 28 + Math.min(42, speedDiff * 0.55);
+          const forwardImpulse = 26 + Math.min(38, speedDiff * 0.50);
           bot.speed = Math.min(bot.speed + forwardImpulse, this.getEffectiveMaxSpeed(bot) * 1.25);
-          bot.bumpBoostTimer = 1.8; // Mantem o impulso sem a IA frear de imediato
+          bot.bumpBoostTimer = 1.8; // Mantém o impulso sem a IA frear de imediato
           bot.z = this.wrapZ(bot.z + 20);
           bot.totalDistance += 20;
 
           // Se bateu descentralizado, desvia levemente para o lado
           if (absDx > 0.08) {
-            p.bumpVelX = (dx >= 0 ? 0.95 : -0.95);
+            p.bumpVelX = (dx >= 0 ? 0.85 : -0.85);
           }
-          this.shake = 2.6;
-        } else if (dz >= 26) {
+          this.shake = 2.4;
+        } else if (dz >= 46) {
           // ========================================================
           // 2. RIVAL BATEU NA TRASEIRA DO JOGADOR
           // ========================================================
-          if (bot.speed > p.speed + 10) {
+          if (bot.speed > p.speed) {
             didCollide = true;
-            bot.speed = Math.max(30, p.speed * 0.82);
-            const pMaxVal = this.getEffectiveMaxSpeed(p); const playerTopSpeed = (p.isNitro ? (pMaxVal * 1.30) : pMaxVal);
-            p.speed = Math.min(p.speed + 22, playerTopSpeed * 1.10);
-            bot.z = this.wrapZ(p.z - 46);
-            this.shake = 2.0;
+            bot.speed = Math.max(30, p.speed * 0.84);
+            const pMaxVal = this.getEffectiveMaxSpeed(p);
+            const playerTopSpeed = (p.isNitro ? (pMaxVal * 1.30) : pMaxVal);
+            p.speed = Math.min(p.speed + 20, playerTopSpeed * 1.10);
+            bot.z = this.wrapZ(p.z - 48);
+            this.shake = 1.8;
           }
         } else {
           // ========================================================
-          // 3. CONTATO PORTA-A-PORTA LATERAL / DISPUTA DE ESPACO:
-          // Respeita o volume do carro para NAO passar por dentro!
-          // Empurra os dois carros para fora proporcionalmente ao overlap.
+          // 3. CONTATO PORTA-A-PORTA LATERAL / DISPUTA DE ESPAÇO FIRME E MODERADA:
+          // NUNCA atravessa por dentro do outro carro! Separação física sólida imediata.
           // ========================================================
           didCollide = true;
-          const overlap = COLLISION_WIDTH - absDx;
+          const overlap = Math.max(0.02, COLLISION_WIDTH - absDx);
           const dirX = (dx >= 0) ? 1 : -1;
 
-          // Afasta fisicamente para nao sobrepor o sprite
-          p.x = Math.max(-1.08, Math.min(1.08, p.x + dirX * overlap * 0.60));
-          bot.x = Math.max(-0.85, Math.min(0.85, bot.x - dirX * overlap * 0.40));
-          bot.targetX = bot.x; // Rival defende a posicao e fecha a porta
+          // Separação física imediata e firme (garante que nunca passem um por dentro do outro)
+          p.x += dirX * overlap * 0.55;
+          bot.x -= dirX * overlap * 0.55;
 
-          p.bumpVelX = dirX * 1.75;
-          p.speed = Math.max(30, p.speed * 0.94); // Atrito lateral
-          bot.speed = Math.max(30, bot.speed * 0.95);
-          this.shake = 1.6;
+          // Sem problema sair da pista (pode ir até a grama e voltar naturalmente)
+          p.x = Math.max(-1.95, Math.min(1.95, p.x));
+          bot.x = Math.max(-1.95, Math.min(1.95, bot.x));
+
+          // Impulso lateral moderado e cadenciado (firme sem ser escandaloso)
+          p.bumpVelX = dirX * (0.65 + overlap * 0.60);
+          bot.bumpVelX = -dirX * (0.65 + overlap * 0.60);
+
+          p.speed = Math.max(30, p.speed - 3.2);
+          bot.speed = Math.max(30, bot.speed - 3.2);
+          this.shake = 1.4;
         }
 
         if (didCollide) {
-          this.audio.playCrash();
-          p.collisionCooldown = 0.22;
-          bot.collisionCooldown = 0.22;
+          if (p.collisionCooldown <= 0) {
+            this.audio.playCrash();
+            p.collisionCooldown = 0.12;
+            bot.collisionCooldown = 0.12;
+          }
 
-          for (let k = 0; k < 6; k++) {
+          // Faíscas vibrantes e bem visíveis saindo do ponto exato de contato da lataria
+          const contactX = (p.x + bot.x) / 2;
+          for (let k = 0; k < 8; k++) {
             this.particlePool.spawn(
-              (p.x + bot.x) / 2, -0.06, p.z,
-              (Math.random() - 0.5) * 1.2, -Math.random() * 0.65,
-              0.22, '#FFB300'
+              contactX, -0.06, p.z,
+              (Math.random() - 0.5) * 1.6 + (dx >= 0 ? 0.3 : -0.3),
+              -Math.random() * 0.75,
+              0.26, (k % 2 === 0) ? '#FFD700' : ((k % 3 === 0) ? '#FFFFFF' : '#FF9100')
             );
           }
-          break; // Processa uma colisao por frame para maxima estabilidade
         }
       }
 
@@ -2136,13 +2202,15 @@
           const dx = carA.x - carB.x;
           const absDx = Math.abs(dx);
 
-          if (dz < 42 && absDx < 0.36) {
-            const overlap = (0.36 - absDx) * 0.5;
+          if (dz <= 46 && absDx < 0.44) {
+            const overlap = (0.44 - absDx);
             const dirX = (dx >= 0) ? 1 : -1;
-            carA.x = Math.max(-0.88, Math.min(0.88, carA.x + dirX * overlap));
-            carB.x = Math.max(-0.88, Math.min(0.88, carB.x - dirX * overlap));
-            carA.speed = Math.max(30, carA.speed * 0.98);
-            carB.speed = Math.max(30, carB.speed * 0.98);
+            carA.x = Math.max(-1.95, Math.min(1.95, carA.x + dirX * overlap * 0.55));
+            carB.x = Math.max(-1.95, Math.min(1.95, carB.x - dirX * overlap * 0.55));
+            carA.bumpVelX = dirX * 0.50;
+            carB.bumpVelX = -dirX * 0.50;
+            carA.speed = Math.max(30, carA.speed * 0.985);
+            carB.speed = Math.max(30, carB.speed * 0.985);
           }
         }
       }
@@ -2152,14 +2220,19 @@
     }
 
     getRankedCars() {
-      return [...this.cars].sort((a, b) => {
-        // Carros que já receberam a bandeirada (finishTime > 0) têm prioridade pelo menor tempo
+      if (!this.cachedRankedCars || this.cachedRankedCars.length !== this.cars.length) {
+        this.cachedRankedCars = new Array(this.cars.length);
+      }
+      for (let i = 0; i < this.cars.length; i++) {
+        this.cachedRankedCars[i] = this.cars[i];
+      }
+      this.cachedRankedCars.sort((a, b) => {
         if (a.finishTime > 0 && b.finishTime > 0) return a.finishTime - b.finishTime;
         if (a.finishTime > 0) return -1;
         if (b.finishTime > 0) return 1;
-        // Carros ainda na pista são ordenados pela maior distância percorrida
         return b.totalDistance - a.totalDistance;
       });
+      return this.cachedRankedCars;
     }
 
     finishRace() {
@@ -2419,6 +2492,25 @@
         ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
         ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, Math.max(0, this.menuFadeAlpha))})`;
         ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+        ctx.restore();
+      }
+
+      // Contador de FPS em tempo real (Discreto e compacto no topo, sem invadir RPM ou velocímetro)
+      if (this.showFPS) {
+        ctx.save();
+        ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+        const fpsVal = Math.round(this.fps);
+        const fpsColor = fpsVal >= 55 ? '#69F0AE' : (fpsVal >= 30 ? '#FFD700' : '#FF5252');
+        ctx.fillStyle = 'rgba(5, 8, 16, 0.70)';
+        ctx.fillRect(4, 1.2, 28, 7.2);
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.30)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(4, 1.2, 28, 7.2);
+        ctx.font = 'bold 5.2px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = fpsColor;
+        ctx.fillText(`${fpsVal} FPS`, 18, 4.8);
         ctx.restore();
       }
     }
@@ -3318,12 +3410,14 @@
       let dx = -(baseSegment.curve * basePercent);
       let x = 0;
       let maxY = INTERNAL_HEIGHT;
-      this.foregroundBots = [];
+      if (!this.foregroundBots) this.foregroundBots = [];
+      else this.foregroundBots.length = 0;
 
       const totalSegs = this.track.segments.length;
       for (let n = 0; n < DRAW_DISTANCE; n++) {
         const seg = this.track.segments[(baseSegment.index + n) % totalSegs];
-        seg.cars = [];
+        if (!seg.cars) seg.cars = [];
+        else seg.cars.length = 0;
         seg.clipY = INTERNAL_HEIGHT;
       }
 
@@ -3334,13 +3428,12 @@
 
           const carZ = this.wrapZ(car.z);
           const relCamZ = (carZ >= camOriginZ) ? (carZ - camOriginZ) : (this.track.totalLength - camOriginZ + carZ);
-          if (relCamZ >= PLAYER_Z_OFFSET - 45 && relCamZ < DRAW_DISTANCE * SEGMENT_LENGTH) {
+          if (relCamZ >= 150 && relCamZ < DRAW_DISTANCE * SEGMENT_LENGTH) {
             const carSeg = this.findSegment(carZ);
-            carSeg.cars.push({
-              car,
-              relCamZ,
-              pct: (carZ % SEGMENT_LENGTH) / SEGMENT_LENGTH
-            });
+            car.renderRelCamZ = relCamZ;
+            car.renderPct = (carZ % SEGMENT_LENGTH) / SEGMENT_LENGTH;
+            if (!carSeg.cars) carSeg.cars = [];
+            carSeg.cars.push(car);
           }
         }
       }
@@ -3419,33 +3512,29 @@
           }
         }
 
-        if (segment.cars.length > 0) {
-          // Ordena de trás para frente (mais distante da câmera primeiro)
-          segment.cars.sort((a, b) => b.relCamZ - a.relCamZ);
+        if (segment.cars && segment.cars.length > 0) {
+          if (segment.cars.length > 1) {
+            segment.cars.sort((a, b) => b.renderRelCamZ - a.renderRelCamZ);
+          }
 
           for (let c = 0; c < segment.cars.length; c++) {
-            const entry = segment.cars[c];
-            const bot = entry.car;
-            const cRoad = this.projectInterpolated(segment, entry.pct);
+            const bot = segment.cars[c];
+            const cRoad = this.projectInterpolated(segment, bot.renderPct);
             const cRoadX = cRoad.x;
             const cRoadY = cRoad.y;
             const cRoadW = cRoad.w;
 
             if (cRoadY > segment.clipY + 12) continue;
 
-            // Escala 1:1 rigorosa: quando emparelhado lado a lado com o jogador (durante ultrapassagem em relCamZ == PLAYER_Z_OFFSET),
-            // as dimensões do rival são RIGOROSAMENTE IDÊNTICAS às do carro do jogador (PLAYER_CAR_W x PLAYER_CAR_H)!
-            const distScale = PLAYER_Z_OFFSET / Math.max(1, entry.relCamZ);
+            const distScale = PLAYER_Z_OFFSET / Math.max(1, bot.renderRelCamZ);
             const carW = PLAYER_CAR_W * distScale;
             const carH = PLAYER_CAR_H * distScale;
             const carX = cRoadX + cRoadW * bot.x;
             const carY = cRoadY - carH * (24 / 68);
 
             if (carW > 3.5 && carH > 2.5) {
-              if (entry.relCamZ < PLAYER_Z_OFFSET) {
-                if (Math.abs(bot.x - p.x) > 0.28) {
-                  this.foregroundBots.push({ bot, x: carX, y: carY, w: carW, h: carH });
-                }
+              if (bot.renderRelCamZ < PLAYER_Z_OFFSET) {
+                this.foregroundBots.push({ bot, x: carX, y: carY, w: carW, h: carH });
               } else {
                 const needClip = cRoadY > segment.clipY;
                 if (needClip) {
@@ -3627,6 +3716,11 @@
       const bottomY = Math.min(p1.y, maxY);
       if (p2.y >= bottomY) return;
 
+      // Sobreposição vertical de subpixel entre trapézios adjacentes: elimina 100% de linhas e frestas na pista
+      const segOverlap = 1.0;
+      const topY = Math.max(0, p2.y - segOverlap);
+      const segBottomY = Math.min(INTERNAL_HEIGHT, bottomY + 0.6);
+
       const r1 = p1.w / 6;
       const r2 = p2.w / 6;
 
@@ -3655,12 +3749,12 @@
         const walkCol = isStone ? (isLight ? '#382B22' : '#271D17') : (isLight ? '#1E293B' : '#131B26');
 
         // Acostamento/calçada entre a zebra e a parede do túnel
-        this.drawPoly(ctx, leftWall1, bottomY, leftEdge1, bottomY, leftEdge2, p2.y, leftWall2, p2.y, walkCol);
-        this.drawPoly(ctx, rightEdge1, bottomY, rightWall1, bottomY, rightWall2, p2.y, rightEdge2, p2.y, walkCol);
+        this.drawPoly(ctx, leftWall1, segBottomY, leftEdge1, segBottomY, leftEdge2, topY, leftWall2, topY, walkCol);
+        this.drawPoly(ctx, rightEdge1, segBottomY, rightWall1, segBottomY, rightWall2, topY, rightEdge2, topY, walkCol);
 
         // Parede Esquerda e Direita (além do acostamento, estendendo até as bordas da tela)
-        this.drawPoly(ctx, 0, bottomY, leftWall1, bottomY, leftWall2, p2.y, 0, p2.y, wallBase);
-        this.drawPoly(ctx, rightWall1, bottomY, INTERNAL_WIDTH, bottomY, INTERNAL_WIDTH, p2.y, rightWall2, p2.y, wallBase);
+        this.drawPoly(ctx, 0, segBottomY, leftWall1, segBottomY, leftWall2, topY, 0, topY, wallBase);
+        this.drawPoly(ctx, rightWall1, segBottomY, INTERNAL_WIDTH, segBottomY, INTERNAL_WIDTH, topY, rightWall2, topY, wallBase);
 
         // Teto do Túnel (Abóbada escura conectando os dois lados)
         const roofColor = isStone ? (isLight ? '#140E0C' : '#0D0907') : (isLight ? '#0D131C' : '#070B11');
@@ -3685,7 +3779,7 @@
             spotGrad.addColorStop(1, 'rgba(255, 183, 77, 0)');
             ctx.fillStyle = spotGrad;
             ctx.beginPath();
-            ctx.ellipse(p1.x, p1.y - 4, p1.w * 0.5, Math.max(2, (bottomY - p2.y) * 2), 0, 0, Math.PI * 2);
+            ctx.ellipse(p1.x, p1.y - 4, p1.w * 0.5, Math.max(2, (segBottomY - topY) * 2), 0, 0, Math.PI * 2);
             ctx.fill();
           }
         } else {
@@ -3698,16 +3792,16 @@
       } else if (segment.bridge) {
         // Laterais da Ponte / Viaduto: Abismo escuro nas laterais (sem colunas invasivas no chão)
         const abyssCol = '#0A0E17';
-        this.drawPoly(ctx, 0, bottomY, p1.x - p1.w - r1, bottomY, p2.x - p2.w - r2, p2.y, 0, p2.y, abyssCol);
-        this.drawPoly(ctx, p1.x + p1.w + r1, bottomY, INTERNAL_WIDTH, bottomY, INTERNAL_WIDTH, p2.y, p2.x + p2.w + r2, p2.y, abyssCol);
+        this.drawPoly(ctx, 0, segBottomY, p1.x - p1.w - r1, segBottomY, p2.x - p2.w - r2, topY, 0, topY, abyssCol);
+        this.drawPoly(ctx, p1.x + p1.w + r1, segBottomY, INTERNAL_WIDTH, segBottomY, INTERNAL_WIDTH, topY, p2.x + p2.w + r2, topY, abyssCol);
       } else {
-        // Grama lateral padrão
-        this.drawPoly(ctx, 0, bottomY, p1.x - p1.w - r1, bottomY, p2.x - p2.w - r2, p2.y, 0, p2.y, c.grass);
-        this.drawPoly(ctx, p1.x + p1.w + r1, bottomY, INTERNAL_WIDTH, bottomY, INTERNAL_WIDTH, p2.y, p2.x + p2.w + r2, p2.y, c.grass);
+        // Grama lateral padrão com sobreposição contínua
+        this.drawPoly(ctx, 0, segBottomY, p1.x - p1.w - r1, segBottomY, p2.x - p2.w - r2, topY, 0, topY, c.grass);
+        this.drawPoly(ctx, p1.x + p1.w + r1, segBottomY, INTERNAL_WIDTH, segBottomY, INTERNAL_WIDTH, topY, p2.x + p2.w + r2, topY, c.grass);
       }
 
-      this.drawPoly(ctx, p1.x - p1.w - r1, bottomY, p1.x - p1.w, bottomY, p2.x - p2.w, p2.y, p2.x - p2.w - r2, p2.y, c.rumble);
-      this.drawPoly(ctx, p1.x + p1.w, bottomY, p1.x + p1.w + r1, bottomY, p2.x + p2.w + r2, p2.y, p2.x + p2.w, p2.y, c.rumble);
+      this.drawPoly(ctx, p1.x - p1.w - r1, segBottomY, p1.x - p1.w, segBottomY, p2.x - p2.w, topY, p2.x - p2.w - r2, topY, c.rumble);
+      this.drawPoly(ctx, p1.x + p1.w, segBottomY, p1.x + p1.w + r1, segBottomY, p2.x + p2.w + r2, topY, p2.x + p2.w, topY, c.rumble);
 
       // Guardrails 3D metálicos com faixas alternadas vermelho e branco (estilo Top Gear)
       if (segment.guardrailLeft && p1.w > 7) {
@@ -3717,10 +3811,10 @@
         const railColor = (Math.floor(segment.index / 2) % 2 === 0) ? '#D62828' : '#F0F4F8';
         if (segment.index % 4 === 0) {
           ctx.fillStyle = '#8B0000';
-          ctx.fillRect(gx1 - gw1 * 0.5, bottomY - gh1 * 1.15, Math.max(1, gw1 * 0.4), gh1 * 1.15);
+          ctx.fillRect(gx1 - gw1 * 0.5, segBottomY - gh1 * 1.15, Math.max(1, gw1 * 0.4), gh1 * 1.15);
         }
-        this.drawPoly(ctx, gx1 - gw1, bottomY - gh1, gx1, bottomY - gh1, gx2, p2.y - gh2, gx2 - gw2, p2.y - gh2, railColor);
-        this.drawPoly(ctx, gx1 - gw1, bottomY - gh1 * 0.5, gx1, bottomY - gh1 * 0.5, gx2, p2.y - gh2 * 0.5, gx2 - gw2, p2.y - gh2 * 0.5, railColor);
+        this.drawPoly(ctx, gx1 - gw1, segBottomY - gh1, gx1, segBottomY - gh1, gx2, topY - gh2, gx2 - gw2, topY - gh2, railColor);
+        this.drawPoly(ctx, gx1 - gw1, segBottomY - gh1 * 0.5, gx1, segBottomY - gh1 * 0.5, gx2, topY - gh2 * 0.5, gx2 - gw2, topY - gh2 * 0.5, railColor);
       }
       if (segment.guardrailRight && p1.w > 7) {
         const gw1 = p1.w * 0.05, gw2 = p2.w * 0.05;
@@ -3729,10 +3823,10 @@
         const railColor = (Math.floor(segment.index / 2) % 2 === 0) ? '#D62828' : '#F0F4F8';
         if (segment.index % 4 === 0) {
           ctx.fillStyle = '#8B0000';
-          ctx.fillRect(gx1, bottomY - gh1 * 1.15, Math.max(1, gw1 * 0.4), gh1 * 1.15);
+          ctx.fillRect(gx1, segBottomY - gh1 * 1.15, Math.max(1, gw1 * 0.4), gh1 * 1.15);
         }
-        this.drawPoly(ctx, gx1, bottomY - gh1, gx1 + gw1, bottomY - gh1, gx2 + gw2, p2.y - gh2, gx2, p2.y - gh2, railColor);
-        this.drawPoly(ctx, gx1, bottomY - gh1 * 0.5, gx1 + gw1, bottomY - gh1 * 0.5, gx2 + gw2, p2.y - gh2 * 0.5, gx2, p2.y - gh2 * 0.5, railColor);
+        this.drawPoly(ctx, gx1, segBottomY - gh1, gx1 + gw1, segBottomY - gh1, gx2 + gw2, topY - gh2, gx2, topY - gh2, railColor);
+        this.drawPoly(ctx, gx1, segBottomY - gh1 * 0.5, gx1 + gw1, segBottomY - gh1 * 0.5, gx2 + gw2, topY - gh2 * 0.5, gx2, topY - gh2 * 0.5, railColor);
       }
 
       // Mureta dos Boxes 3D contínua na Reta Principal (estilo Autódromo de Interlagos)
@@ -3750,11 +3844,11 @@
         const wallBase = isLightWall ? '#475569' : '#334155';
         const wallTop = '#64748B';
         // Face superior e lateral frontal
-        this.drawPoly(ctx, wx1, bottomY - wh1, wx1 + ww1, bottomY - wh1, wx2 + ww2, p2.y - wh2, wx2, p2.y - wh2, wallTop);
-        this.drawPoly(ctx, wx1, bottomY, wx1, bottomY - wh1, wx2, p2.y - wh2, wx2, p2.y, wallBase);
+        this.drawPoly(ctx, wx1, segBottomY - wh1, wx1 + ww1, segBottomY - wh1, wx2 + ww2, topY - wh2, wx2, topY - wh2, wallTop);
+        this.drawPoly(ctx, wx1, segBottomY, wx1, segBottomY - wh1, wx2, topY - wh2, wx2, topY, wallBase);
 
         // Faixa de advertência amarela/preta no topo da mureta
-        this.drawPoly(ctx, wx1, bottomY - wh1 * 0.88, wx1, bottomY - wh1, wx2, p2.y - wh2, wx2, p2.y - wh2 * 0.88, isLightWall ? '#FBBF24' : '#1E293B');
+        this.drawPoly(ctx, wx1, segBottomY - wh1 * 0.88, wx1, segBottomY - wh1, wx2, topY - wh2, wx2, topY - wh2 * 0.88, isLightWall ? '#FBBF24' : '#1E293B');
 
         // Postes de tela de proteção (grade de segurança) e telas de telemetria
         if (segment.index % 4 === 0 && p1.w > 10) {
@@ -3762,31 +3856,31 @@
           ctx.strokeStyle = '#94A3B8';
           ctx.lineWidth = Math.max(1, p1.w * 0.015);
           ctx.beginPath();
-          ctx.moveTo(wx1, bottomY - wh1);
-          ctx.lineTo(wx1, bottomY - fenceH);
+          ctx.moveTo(wx1, segBottomY - wh1);
+          ctx.lineTo(wx1, segBottomY - fenceH);
           ctx.stroke();
 
           // Monitor de telemetria da equipe voltado para a pista
           const scrW = Math.max(3, p1.w * 0.08);
           const scrH = Math.max(2, wh1 * 0.45);
           ctx.fillStyle = '#0284C7';
-          ctx.fillRect(wx1, bottomY - wh1 * 0.8, scrW, scrH);
+          ctx.fillRect(wx1, segBottomY - wh1 * 0.8, scrW, scrH);
         }
       }
 
-      // Asfalto com trilhas sutis de rolagem 2.5D HD
-      this.drawPoly(ctx, p1.x - p1.w, bottomY, p1.x + p1.w, bottomY, p2.x + p2.w, p2.y, p2.x - p2.w, p2.y, c.road);
+      // Asfalto com sobreposição perfeita e trilhas sutis de rolagem 2.5D HD (zero frestas/linhas)
+      this.drawPoly(ctx, p1.x - p1.w, segBottomY, p1.x + p1.w, segBottomY, p2.x + p2.w, topY, p2.x - p2.w, topY, c.road);
       const grooveCol = 'rgba(0, 0, 0, 0.08)';
-      this.drawPoly(ctx, p1.x - p1.w * 0.55, bottomY, p1.x - p1.w * 0.18, bottomY, p2.x - p2.w * 0.18, p2.y, p2.x - p2.w * 0.55, p2.y, grooveCol);
-      this.drawPoly(ctx, p1.x + p1.w * 0.18, bottomY, p1.x + p1.w * 0.55, bottomY, p2.x + p2.w * 0.55, p2.y, p2.x + p2.w * 0.18, p2.y, grooveCol);
+      this.drawPoly(ctx, p1.x - p1.w * 0.55, segBottomY, p1.x - p1.w * 0.18, segBottomY, p2.x - p2.w * 0.18, topY, p2.x - p2.w * 0.55, topY, grooveCol);
+      this.drawPoly(ctx, p1.x + p1.w * 0.18, segBottomY, p1.x + p1.w * 0.55, segBottomY, p2.x + p2.w * 0.55, topY, p2.x + p2.w * 0.18, topY, grooveCol);
 
       // Mancha de iluminação oval no asfalto e zebra gerada pelo poste arqueado (efeito dinâmico idêntico à imagem de referência!)
       if (segment.lampOffset !== null && segment.lampOffset !== undefined && p1.w > 10) {
         const lampSide = segment.lampOffset > 0 ? 1 : -1;
         const spotX = p1.x + p1.w * lampSide * 0.64;
-        const spotY = (bottomY + p2.y) * 0.5;
+        const spotY = (segBottomY + topY) * 0.5;
         const rx = p1.w * 0.44;
-        const ry = Math.max(2.5, (bottomY - p2.y) * 2.8);
+        const ry = Math.max(2.5, (segBottomY - topY) * 2.8);
         const glow = ctx.createRadialGradient(spotX, spotY, 2, spotX, spotY, rx);
         glow.addColorStop(0, 'rgba(255, 238, 140, 0.35)');
         glow.addColorStop(0.5, 'rgba(255, 215, 90, 0.18)');
@@ -3807,16 +3901,16 @@
         const skidCol = `rgba(12, 14, 18, ${alpha.toFixed(2)})`;
         const lx1 = p1.x + p1.w * (sx - tireOff), lx2 = p2.x + p2.w * (sx - tireOff);
         const rx1 = p1.x + p1.w * (sx + tireOff), rx2 = p2.x + p2.w * (sx + tireOff);
-        this.drawPoly(ctx, lx1 - tw1, bottomY, lx1 + tw1, bottomY, lx2 + tw2, p2.y, lx2 - tw2, p2.y, skidCol);
-        this.drawPoly(ctx, rx1 - tw1, bottomY, rx1 + tw1, bottomY, rx2 + tw2, p2.y, rx2 - tw2, p2.y, skidCol);
+        this.drawPoly(ctx, lx1 - tw1, segBottomY, lx1 + tw1, segBottomY, lx2 + tw2, topY, lx2 - tw2, topY, skidCol);
+        this.drawPoly(ctx, rx1 - tw1, segBottomY, rx1 + tw1, segBottomY, rx2 + tw2, topY, rx2 - tw2, topY, skidCol);
       }
 
       // Linhas brancas contínuas de acostamento (delimitação nítida da pista)
       const edgeW1 = Math.max(0.8, p1.w / 38);
       const edgeW2 = Math.max(0.4, p2.w / 38);
       const edgeColor = 'rgba(240, 244, 250, 0.65)';
-      this.drawPoly(ctx, p1.x - p1.w + edgeW1, bottomY, p1.x - p1.w + edgeW1 * 2.4, bottomY, p2.x - p2.w + edgeW2 * 2.4, p2.y, p2.x - p2.w + edgeW2, p2.y, edgeColor);
-      this.drawPoly(ctx, p1.x + p1.w - edgeW1 * 2.4, bottomY, p1.x + p1.w - edgeW1, bottomY, p2.x + p2.w - edgeW2, p2.y, p2.x + p2.w - edgeW2 * 2.4, p2.y, edgeColor);
+      this.drawPoly(ctx, p1.x - p1.w + edgeW1, segBottomY, p1.x - p1.w + edgeW1 * 2.4, segBottomY, p2.x - p2.w + edgeW2 * 2.4, topY, p2.x - p2.w + edgeW2, topY, edgeColor);
+      this.drawPoly(ctx, p1.x + p1.w - edgeW1 * 2.4, segBottomY, p1.x + p1.w - edgeW1, segBottomY, p2.x + p2.w - edgeW2, topY, p2.x + p2.w - edgeW2 * 2.4, topY, edgeColor);
 
       // Faixa Quadriculada de Largada / Chegada (à frente do grid F1)
       if (segment.index === START_LINE_SEG || segment.index === START_LINE_SEG + 1) {
@@ -3827,10 +3921,10 @@
           const sqColor = ((k + segment.index) % 2 === 0) ? '#FFFFFF' : '#151515';
           this.drawPoly(
             ctx,
-            p1.x + p1.w * tA, bottomY,
-            p1.x + p1.w * tB, bottomY,
-            p2.x + p2.w * tB, p2.y,
-            p2.x + p2.w * tA, p2.y,
+            p1.x + p1.w * tA, segBottomY,
+            p1.x + p1.w * tB, segBottomY,
+            p2.x + p2.w * tB, topY,
+            p2.x + p2.w * tA, topY,
             sqColor
           );
         }
@@ -3842,10 +3936,10 @@
         const cx = segment.gridBox === 'left' ? -GRID_COL_X : GRID_COL_X;
         const halfW = 0.165;
         const lineT = 0.022;
-        const segH = bottomY - p2.y;
-        const yFrontA = p2.y;
-        const yFrontB = p2.y + segH * 0.22;
-        const yBack = p2.y + segH * 0.78;
+        const segH = segBottomY - topY;
+        const yFrontA = topY;
+        const yFrontB = topY + segH * 0.22;
+        const yBack = topY + segH * 0.78;
         const xAt = (yVal, normX) => {
           const t = (p1.y === p2.y) ? 0 : (yVal - p2.y) / (p1.y - p2.y);
           const rx = p2.x + (p1.x - p2.x) * t;
@@ -3886,7 +3980,7 @@
       if (!inGridZone && c.lane !== 'transparent') {
         const laneW1 = p1.w / 28;
         const laneW2 = p2.w / 28;
-        this.drawPoly(ctx, p1.x - laneW1, bottomY, p1.x + laneW1, bottomY, p2.x + laneW2, p2.y, p2.x - laneW2, p2.y, c.lane);
+        this.drawPoly(ctx, p1.x - laneW1, segBottomY, p1.x + laneW1, segBottomY, p2.x + laneW2, topY, p2.x - laneW2, topY, c.lane);
       }
     }
 
@@ -5200,7 +5294,7 @@
       ctx.fillStyle = '#FFD700';
       ctx.fillRect(mapBoxX + 5 + pPt.x * (mapBoxW - 10) - 2, mapBoxY + 5 + pPt.z * (mapBoxH - 10) - 2, 4, 4);
 
-      if (this.lapBannerTimer > 0) {
+      if (this.lapBannerTimer > 0 && !this.finishingRace) {
         if (this.isLastLapBanner) {
           const lbW = 204;
           const lbH = 28;
@@ -7483,19 +7577,48 @@
           ctx.globalAlpha = 1.0;
         }
 
-        ctx.fillStyle = '#1A1E29';
-        ctx.fillRect(0, 145, INTERNAL_WIDTH, INTERNAL_HEIGHT - 145);
-        ctx.fillStyle = '#FFD700';
-        ctx.fillRect(0, 145, INTERNAL_WIDTH, 2);
-        const dashOffset = (t * 80) % 40;
-        for (let dx = -dashOffset; dx < INTERNAL_WIDTH; dx += 40) {
-          ctx.fillRect(dx, 175, 22, 2);
+        // Pista comemorativa em PERSPECTIVA 3D FRONTAL (Opção A)
+        const roadHorizonY = 136;
+        const roadCenter = INTERNAL_WIDTH / 2;
+
+        // Asfalto da pista em trapézio frontal
+        ctx.fillStyle = '#151822';
+        ctx.beginPath();
+        ctx.moveTo(roadCenter - 18, roadHorizonY);
+        ctx.lineTo(roadCenter + 18, roadHorizonY);
+        ctx.lineTo(roadCenter + 185, INTERNAL_HEIGHT);
+        ctx.lineTo(roadCenter - 185, INTERNAL_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
+
+        // Zebras laterais em perspectiva
+        const curbAnim = (t * 70) % 18;
+        for (let dy = roadHorizonY + curbAnim; dy < INTERNAL_HEIGHT; dy += 14) {
+          const pr = (dy - roadHorizonY) / (INTERNAL_HEIGHT - roadHorizonY);
+          const halfW = 18 + pr * 167;
+          const curbW = 4 + pr * 14;
+          const isRed = Math.floor((dy - curbAnim) / 14) % 2 === 0;
+          ctx.fillStyle = isRed ? '#FF1744' : '#FFFFFF';
+          ctx.fillRect(roadCenter - halfW - curbW, dy, curbW, 10 * pr + 2);
+          ctx.fillRect(roadCenter + halfW, dy, curbW, 10 * pr + 2);
+        }
+
+        // Faixas centrais tracejadas correndo suavemente em direção à tela
+        const dashAnim = (t * 60) % 20;
+        ctx.strokeStyle = '#FFD700';
+        for (let dy = roadHorizonY + dashAnim; dy < INTERNAL_HEIGHT; dy += 18) {
+          const pr = (dy - roadHorizonY) / (INTERNAL_HEIGHT - roadHorizonY);
+          ctx.lineWidth = 1.5 + pr * 2.5;
+          ctx.beginPath();
+          ctx.moveTo(roadCenter, dy);
+          ctx.lineTo(roadCenter, dy + 6 + pr * 8);
+          ctx.stroke();
         }
 
         this.renderConfetti(ctx);
 
         const trophyX = INTERNAL_WIDTH / 2;
-        const trophyY = 62;
+        const trophyY = 58;
         const glow = (Math.sin(t * 4) + 1) * 0.5;
         const radG = ctx.createRadialGradient(trophyX, trophyY, 5, trophyX, trophyY, 48);
         radG.addColorStop(0, `rgba(255, 215, 0, ${0.45 + glow * 0.3})`);
@@ -7510,7 +7633,8 @@
         ctx.font = '34px monospace';
         ctx.fillText('🏆', trophyX, trophyY + 12);
 
-        const carY = 162 + Math.sin(t * 12) * 1.0;
+        // Carro do Campeão centralizado e alinhado perfeitamente com a pista frontal
+        const carY = 170 + Math.sin(t * 12) * 0.8;
         if (this.player && this.player.model) {
           this.player.model.render(
             ctx, trophyX, carY, 68, 42, false, 0, this.player.bodyColor,
@@ -7543,12 +7667,31 @@
         ctx.fillStyle = bgGrad;
         ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
 
-        this.renderConfetti(ctx);
+        // Pista em perspectiva 3D frontal (Opção A)
+        const roadHorizonY = 136;
+        const roadCenter = INTERNAL_WIDTH / 2;
+        ctx.fillStyle = '#151822';
+        ctx.beginPath();
+        ctx.moveTo(roadCenter - 18, roadHorizonY);
+        ctx.lineTo(roadCenter + 18, roadHorizonY);
+        ctx.lineTo(roadCenter + 185, INTERNAL_HEIGHT);
+        ctx.lineTo(roadCenter - 185, INTERNAL_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
 
-        ctx.fillStyle = '#1E2530';
-        ctx.fillRect(0, 145, INTERNAL_WIDTH, INTERNAL_HEIGHT - 145);
-        ctx.fillStyle = '#00E5FF';
-        ctx.fillRect(0, 145, INTERNAL_WIDTH, 2);
+        // Faixas centrais em perspectiva
+        const dashAnim = (t * 50) % 20;
+        ctx.strokeStyle = '#00E5FF';
+        for (let dy = roadHorizonY + dashAnim; dy < INTERNAL_HEIGHT; dy += 18) {
+          const pr = (dy - roadHorizonY) / (INTERNAL_HEIGHT - roadHorizonY);
+          ctx.lineWidth = 1.5 + pr * 2.2;
+          ctx.beginPath();
+          ctx.moveTo(roadCenter, dy);
+          ctx.lineTo(roadCenter, dy + 6 + pr * 7);
+          ctx.stroke();
+        }
+
+        this.renderConfetti(ctx);
 
         const trophyX = INTERNAL_WIDTH / 2;
         const trophyY = 62;
@@ -7686,17 +7829,26 @@
     gameLoop(now) {
       try {
         let frameTime = (now - this.lastTime) / 1000;
-        if (frameTime > 0.1) frameTime = 0.1;
+        if (frameTime > 0.067) frameTime = 0.067;
+        if (frameTime < 0) frameTime = 0;
         this.lastTime = now;
 
-        this.accumulator += frameTime;
+        // Amostragem contínua de FPS com média móvel
+        this.fpsFrames++;
+        if (now - this.fpsLastTime >= 250) {
+          this.fps = (this.fpsFrames * 1000) / (now - this.fpsLastTime);
+          this.fpsFrames = 0;
+          this.fpsLastTime = now;
+        }
+
+        this.accumulator = Math.min(this.accumulator + frameTime, this.fixedStep * 2.5);
         let steps = 0;
-        while (this.accumulator >= this.fixedStep && steps < 4) {
+        while (this.accumulator >= this.fixedStep && steps < 3) {
           this.update(this.fixedStep);
           this.accumulator -= this.fixedStep;
           steps++;
         }
-        if (steps >= 4) {
+        if (steps >= 3) {
           this.accumulator = 0;
         }
 

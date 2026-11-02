@@ -115,16 +115,18 @@
       white-space: nowrap;
     }
 
-    /* Barra Superior Direita: Pausa e Configurações */
+    /* Barra Superior Centralizada: Pausa e Configurações */
     #top-utility-bar {
       position: absolute;
       top: max(6px, env(safe-area-inset-top, 6px));
-      right: max(6px, env(safe-area-inset-right, 6px));
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
       z-index: 65;
       pointer-events: auto;
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 8px;
     }
     .pause-btn, .gear-btn {
       width: 28px;

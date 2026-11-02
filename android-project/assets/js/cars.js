@@ -744,30 +744,59 @@
         CarArt.line(c, rx - 31.2 * sx, 14.0, rx + 31.2 * sx, 14.0, '#10141B', 1.0);
         CarArt.drawPlateStraight(c, rx - 10.0, 14.4, 20.0, 5.4);
 
-        // === RACK E ESCADA METÁLICA 3D NO TETO (perspectiva sutil acompanhando a curva) ===
-        const ladderFrontShift = -turn * 3.8;
-        const lBackL = tx - 17.5 * sx;
-        const lBackR = tx + 17.5 * sx;
-        const lFrontL = tx - 14.5 * sx + ladderFrontShift;
-        const lFrontR = tx + 14.5 * sx + ladderFrontShift;
+        // === RACK E ESCADA METÁLICA DE FIRMA NO TETO (fina, posicionada à esquerda e acompanhando a curva) ===
+        // 1. Barras transversais pretas do rack de teto (atravessam o teto)
+        const rackShiftFront = turn * 2.0;
+        // Pés de fixação e barra traseira do rack
+        CarArt.line(c, tx - 21.0 * sx, -23.8, tx - 20.2 * sx, -27.5, '#141820', 2.2);
+        CarArt.line(c, tx + 21.0 * sx, -23.8, tx + 20.2 * sx, -27.5, '#141820', 2.2);
+        CarArt.line(c, tx - 21.5 * sx, -27.5, tx + 21.5 * sx, -27.5, out, 2.4);
+        CarArt.line(c, tx - 21.0 * sx, -27.5, tx + 21.0 * sx, -27.5, '#2B3340', 1.4);
 
-        // Sapatas pretas do rack de teto
-        CarArt.line(c, tx - 20.5 * sx, -24, lBackL, -29.5, '#171C24', 2.4);
-        CarArt.line(c, tx + 20.5 * sx, -24, lBackR, -29.5, '#171C24', 2.4);
-        CarArt.line(c, lBackL - 1.5, -28.2, lBackR + 1.5, -28.2, '#1F2630', 1.8);
+        // Barra dianteira do rack em perspectiva
+        const frontBarL = tx - 19.5 * sx + rackShiftFront;
+        const frontBarR = tx + 19.5 * sx + rackShiftFront;
+        CarArt.line(c, frontBarL, -32.0, frontBarR, -32.0, out, 2.0);
+        CarArt.line(c, frontBarL + 0.5, -32.0, frontBarR - 0.5, -32.0, '#222933', 1.2);
+
+        // 2. Escada de alumínio estreita (12px) posicionada à esquerda do teto
+        const ladderCenterBack = tx - 12.0 * sx;
+        const ladderCenterFront = tx - 12.0 * sx + turn * 4.4; // Acompanha fielmente o lado da curva
+        const halfW_back = 6.0 * sx;  // Largura exata de 12px (6.0 * 2)
+        const halfW_front = 5.2 * sx; // Perspectiva em profundidade
+
+        const lBackL = ladderCenterBack - halfW_back;
+        const lBackR = ladderCenterBack + halfW_back;
+        const lFrontL = ladderCenterFront - halfW_front;
+        const lFrontR = ladderCenterFront + halfW_front;
 
         // Degraus horizontais de alumínio entre as longarinas
-        for (let k = 0; k < 5; k++) {
-          const f = k / 4;
+        for (let k = 0; k < 6; k++) {
+          const f = k / 5;
           const x1 = lBackL + (lFrontL - lBackL) * f;
           const x2 = lBackR + (lFrontR - lBackR) * f;
-          const ry = -27.5 - f * 5.8;
-          CarArt.line(c, x1, ry, x2, ry, out, 2.2);
-          CarArt.line(c, x1 + 0.5, ry, x2 - 0.5, ry, '#CFD8E3', 1.15);
+          const ry = -27.4 - f * 6.2;
+          CarArt.line(c, x1, ry, x2, ry, out, 2.0);
+          CarArt.line(c, x1 + 0.4, ry, x2 - 0.4, ry, '#E2E8F0', 1.1);
         }
-        // Longarinas laterais da escada
-        CarArt.poly(c, [[lBackL - 1.6, -27.0], [lFrontL - 1.4, -33.6], [lFrontL + 1.0, -33.6], [lBackL + 1.0, -27.0]], '#9AA5B4', out, 1.0);
-        CarArt.poly(c, [[lBackR - 1.0, -27.0], [lFrontR - 1.0, -33.6], [lFrontR + 1.6, -33.6], [lBackR + 1.6, -27.0]], '#9AA5B4', out, 1.0);
+
+        // Longarinas laterais de alumínio da escada (com relevo metálico)
+        CarArt.poly(c, [
+          [lBackL - 1.4, -26.8], [lFrontL - 1.2, -33.8],
+          [lFrontL + 0.9, -33.8], [lBackL + 0.9, -26.8]
+        ], '#94A3B8', out, 0.95);
+        CarArt.poly(c, [
+          [lBackR - 0.9, -26.8], [lFrontR - 0.9, -33.8],
+          [lFrontR + 1.4, -33.8], [lBackR + 1.4, -26.8]
+        ], '#94A3B8', out, 0.95);
+
+        // Cintas de amarração vermelhas prendendo a escada no rack de teto
+        CarArt.line(c, lBackL - 1.5, -27.4, lBackR + 1.5, -27.4, '#DC2626', 1.4);
+        const frontStrapF = 0.74;
+        const sX1 = lBackL + (lFrontL - lBackL) * frontStrapF;
+        const sX2 = lBackR + (lFrontR - lBackR) * frontStrapF;
+        const sY = -27.4 - frontStrapF * 6.2;
+        CarArt.line(c, sX1 - 1.4, sY, sX2 + 1.4, sY, '#DC2626', 1.4);
       },
       render: function(ctx, x, y, w, h, isBraking, steer = 0, customBody = null, opts = null) {
         CarArt.renderModel(ctx, this, x, y, w, h, isBraking, steer, customBody, opts);

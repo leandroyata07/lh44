@@ -123,9 +123,13 @@
       if (this.onViewportChange) this.onViewportChange();
     }
 
-    tryAutoEnterMobileFullscreen() {
-      if (!this.isMobileDevice || this.userExitedFullscreen || this.isFullscreenActive()) return;
+    tryAutoEnterFullscreen() {
+      if (this.userExitedFullscreen || this.isFullscreenActive()) return;
       this.requestFullscreenAndLandscape();
+    }
+
+    tryAutoEnterMobileFullscreen() {
+      this.tryAutoEnterFullscreen();
     }
 
     requestFullscreenAndLandscape() {
@@ -187,8 +191,14 @@
         } else {
           panel.classList.add('open');
           if (gearBtn) gearBtn.classList.add('active');
-          // Abrir configurações pausa o jogo
-          this.justPressedEsc = true;
+          // Abrir configurações pausa a corrida de fato
+          if (window.game && window.game.state === 'RACING') {
+            window.game.state = 'PAUSED';
+            if (window.game.audio) window.game.audio.silenceEffects();
+            if (window.game.audio) window.game.audio.playBeep(300, 0.1);
+          } else {
+            this.justPressedEsc = true;
+          }
         }
       }
     }
@@ -293,14 +303,14 @@
         this.gamepadConnected = false;
       });
 
-      // Solicita tela cheia automaticamente na primeira interação em navegadores de celular
-      const tryAutoMobileFs = () => {
-        if (this.isMobileDevice && !this.isFullscreenActive() && !this.userExitedFullscreen) {
-          this.enterFullscreen();
-        }
+      // Solicita tela cheia por padrão na primeira interação em qualquer dispositivo (PC ou Celular)
+      const tryAutoFs = () => {
+        this.tryAutoEnterFullscreen();
       };
-      window.addEventListener('touchstart', tryAutoMobileFs, { passive: true });
-      window.addEventListener('pointerdown', tryAutoMobileFs, { passive: true });
+      window.addEventListener('touchstart', tryAutoFs, { passive: true });
+      window.addEventListener('pointerdown', tryAutoFs, { passive: true });
+      window.addEventListener('click', tryAutoFs, { passive: true });
+      window.addEventListener('keydown', tryAutoFs, { passive: true });
 
       window.addEventListener('keydown', (e) => {
         this.notifyGesture(false);
@@ -753,7 +763,20 @@
 
       bindTap(pauseBtn, () => {
         this.notifyGesture(false);
-        this.justPressedEsc = true;
+        if (window.game) {
+          if (window.game.state === 'RACING') {
+            window.game.state = 'PAUSED';
+            if (window.game.audio) window.game.audio.silenceEffects();
+            if (window.game.audio) window.game.audio.playBeep(300, 0.1);
+          } else if (window.game.state === 'PAUSED') {
+            window.game.state = 'RACING';
+            if (window.game.audio) window.game.audio.playBeep(523, 0.1);
+          } else {
+            this.justPressedEsc = true;
+          }
+        } else {
+          this.justPressedEsc = true;
+        }
       });
 
       bindTap(gearBtn, () => {
@@ -766,10 +789,15 @@
       });
 
       bindTap(resumeBtn, () => {
+        this.notifyGesture(false);
         if (panel) panel.classList.remove('open');
         if (gearBtn) gearBtn.classList.remove('active');
-        // Botão Continuar despausa o jogo
-        this.justPressedEsc = true;
+        if (window.game && window.game.state === 'PAUSED') {
+          window.game.state = 'RACING';
+          if (window.game.audio) window.game.audio.playBeep(523, 0.1);
+        } else {
+          this.justPressedEsc = true;
+        }
       });
 
       const handleFsToggle = () => {
@@ -841,7 +869,6 @@
               y: (pt.y / pt.h) * INTERNAL_HEIGHT
             };
           }
-          this.justPressedEnter = true;
         };
 
         let canvasTouched = false;
