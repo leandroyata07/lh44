@@ -33,6 +33,62 @@ const TITLE_THEME_SONG = {
   ]
 };
 
+const ENDING_VICTORY_SONG = {
+  id: 'ending_victory',
+  name: 'GLORY OF CHAMPIONS',
+  type: 'synth',
+  desc: 'Encerramento Épico e Triunfante dos Campeões.',
+  bpm: 124, swing: 0,
+  lead: 'saw', bassType: 'synth',
+  roots: [48, 52, 53, 55, 48, 52, 53, 55],
+  chords: [
+    [60,64,67], [64,67,71], [65,69,72], [67,71,74],
+    [60,64,67], [64,67,71], [65,69,72], [67,71,74]
+  ],
+  pad: 0.06,
+  stab: 'x...x...x...x...', stabType: 'triangle', stabVol: 0.04,
+  bass: [0,N,12,N, 0,N,7,N, 0,N,12,N, 0,N,7,N],
+  drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '..x...x...x...x.' },
+  melody: [
+    [72,T,76,T, 79,T,84,T, 88,T,84,T, 79,T,76,T],
+    [76,T,79,T, 83,T,88,T, 86,T,83,T, 79,T,76,T],
+    [77,T,81,T, 84,T,89,T, 88,T,84,T, 81,T,77,T],
+    [79,T,83,T, 86,T,91,T, 91,T,86,T, 83,T,79,T],
+    [84,T,88,T, 91,T,96,T, 95,T,91,T, 88,T,84,T],
+    [88,T,83,T, 86,T,91,T, 89,T,86,T, 83,T,81,T],
+    [81,T,84,T, 88,T,89,T, 91,T,88,T, 84,T,81,T],
+    [84,T,86,T, 88,T,91,T, 96,T,T,T,  96,T,T,T]
+  ]
+};
+
+const ENDING_MOTIVATIONAL_SONG = {
+  id: 'ending_motivational',
+  name: 'SUNSET HORIZON',
+  type: 'synth',
+  desc: 'Encerramento Nostálgico, Quente e Motivacional.',
+  bpm: 108, swing: 0,
+  lead: 'pulse', bassType: 'synth',
+  roots: [45, 41, 48, 43, 45, 41, 48, 43],
+  chords: [
+    [57,60,64], [53,57,60], [60,64,67], [55,59,62],
+    [57,60,64], [53,57,60], [60,64,67], [55,59,62]
+  ],
+  pad: 0.07,
+  stab: '..x.....x...x...', stabType: 'sine', stabVol: 0.03,
+  bass: [0,N,0,N, 7,N,0,N, 0,N,0,N, 7,N,0,N],
+  drums: { k: 'x.......x.......', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '........x.......' },
+  melody: [
+    [69,T,72,T, 76,T,79,T, 76,T,72,T, 69,T,T,T],
+    [65,T,69,T, 72,T,77,T, 72,T,69,T, 65,T,T,T],
+    [67,T,72,T, 76,T,79,T, 84,T,79,T, 76,T,72,T],
+    [71,T,74,T, 79,T,83,T, 79,T,74,T, 71,T,T,T],
+    [76,T,79,T, 81,T,84,T, 81,T,76,T, 72,T,69,T],
+    [77,T,81,T, 84,T,89,T, 84,T,81,T, 77,T,72,T],
+    [79,T,84,T, 88,T,91,T, 88,T,84,T, 79,T,76,T],
+    [74,T,79,T, 83,T,86,T, 84,T,T,T,  84,T,T,T]
+  ]
+};
+
 const SONGS = [
   {
     id: 'song1',
@@ -177,6 +233,7 @@ class AudioManager {
   }
 
   playTitleMusic() {
+    this.stopEndingMusic();
     if (!this._enabled) return;
     if (this.titlePlaying) {
       if (this.ctx && this.ctx.state === 'suspended') {
@@ -196,6 +253,28 @@ class AudioManager {
     this.startMusic();
   }
 
+  playEndingMusic(isTop3 = true) {
+    this.stopTitleMusic();
+    this.musicPlaying = false;
+    if (!this._enabled) return;
+    this.endingPlaying = true;
+    this.endingSongType = isTop3 ? 'victory' : 'motivational';
+    this.step = 0;
+    if (!this.ctx) this.init();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+    if (this.ctx) {
+      this.nextNoteTime = this.ctx.currentTime + 0.05;
+    }
+    this.startMusic();
+  }
+
+  stopEndingMusic() {
+    this.endingPlaying = false;
+    this.step = 0;
+  }
+
   stopTitleMusic() {
     this.titlePlaying = false;
     this.step = 0;
@@ -212,6 +291,10 @@ class AudioManager {
   }
   set musicPlaying(val) {
     this._musicPlaying = !!val;
+    if (this._musicPlaying) {
+      this.titlePlaying = false;
+      this.endingPlaying = false;
+    }
     this.syncMusicPlayback();
   }
 
@@ -666,6 +749,19 @@ class AudioManager {
   musicScheduler() {
     if (!this.ctx || !this.musicBus) return;
     const now = this.ctx.currentTime;
+
+    // Música de Encerramento (Vitória/Pódio ou Motivacional)
+    if (this._enabled && this.endingPlaying) {
+      if (this.nextNoteTime < now - 0.25) this.nextNoteTime = now + 0.05;
+      const song = (this.endingSongType === 'motivational') ? ENDING_MOTIVATIONAL_SONG : ENDING_VICTORY_SONG;
+      const stepDur = 60 / song.bpm / 4;
+      while (this.nextNoteTime < now + 0.14) {
+        this.playMusicStep(song, this.step, this.nextNoteTime, stepDur);
+        this.nextNoteTime += stepDur;
+        this.step++;
+      }
+      return;
+    }
 
     // Música de Abertura / Menu sintetizada por código Web Audio API
     if (this._enabled && this.titlePlaying) {

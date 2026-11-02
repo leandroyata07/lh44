@@ -41,8 +41,13 @@
       return this.totalDistance;
     }
 
+    getEffectiveMaxSpeed() {
+      if (this.effectiveMaxSpeed) return this.effectiveMaxSpeed;
+      return (this.model && this.model.maxSpeed) ? this.model.maxSpeed : 220;
+    }
+
     updateTransmission() {
-      const normalMax = (this.model && this.model.maxSpeed) ? this.model.maxSpeed : 220;
+      const normalMax = this.getEffectiveMaxSpeed();
       const speedRatio = Math.max(0, this.speed / normalMax);
       let gInfo = GEAR_RATIOS[0];
       for (let i = GEAR_RATIOS.length - 1; i >= 0; i--) {
@@ -120,6 +125,18 @@
       this.championshipPoints = new Array(TOTAL_RACERS).fill(0);
       this.lastRacePositions = [];
       this.seasonBots = [];
+      this.diffMode = 'NORMAL';
+      this.selectedDiffIndex = 0;
+      this.lastLapAlertTimer = 0;
+      this.isLastLapBanner = false;
+      this.menuFadeAlpha = 0;
+      this.menuFadeState = 'idle';
+      this.menuFadeTargetState = null;
+      this.menuFadeOnMid = null;
+      this.menuFadeDuration = 0.22;
+      this.endingTimer = 0;
+      this.endingRank = 1;
+      this.endingFireworks = [];
       this.confetti = [];
       this.fixedStep = 1 / 60;
       this.accumulator = 0;
@@ -192,7 +209,10 @@
       }
       if (this.nameWrapper) this.nameWrapper.classList.remove('show');
       this.audio.playBeep(523, 0.12);
-      this.state = 'RACE_SETUP';
+      if (this.gameMode === 'CHAMPIONSHIP' && (this.seasonStage === 0 || !this.seasonBots || this.seasonBots.length < 19)) {
+        this.initSeasonRoster(this.selectedCarIndex);
+      }
+      this.fadeTransition('RACE_SETUP');
       this.setupCooldown = 0.55;
       this.setupGroup = 0;
       this.audio.stopTitleMusic();
@@ -240,17 +260,23 @@
       }
     }
 
-    initSeasonRoster() {
+    initSeasonRoster(playerModelIndex = -1) {
       this.seasonBots = [];
-      for (let i = 0; i < F1_DRIVERS.length; i++) {
+      const chosenIndex = (playerModelIndex >= 0) ? playerModelIndex : this.selectedCarIndex;
+      const availableModels = CAR_MODELS.filter((_, idx) => idx !== chosenIndex);
+      for (let i = availableModels.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [availableModels[i], availableModels[j]] = [availableModels[j], availableModels[i]];
+      }
+      for (let i = 0; i < F1_DRIVERS.length && i < 19; i++) {
         const drv = F1_DRIVERS[i];
-        const randModel = CAR_MODELS[Math.floor(Math.random() * CAR_MODELS.length)];
+        const assignedModel = availableModels[i % availableModels.length] || CAR_MODELS[0];
         const randColor = BOT_BODY_COLORS[i % BOT_BODY_COLORS.length];
         const baseSkill = 0.98 - (i * 0.007) + (Math.random() - 0.5) * 0.035;
         this.seasonBots.push({
           driverName: drv.name,
           driverCode: drv.code,
-          model: randModel,
+          model: assignedModel,
           bodyColor: randColor,
           baseAiSkill: baseSkill
         });
@@ -284,21 +310,27 @@
         this.initSeasonRoster();
       }
 
-      // Garante que cada um dos 19 adversários da CPU use um dos 19 modelos restantes (todos distintos no grid de 20 carros!)
-      const remainingModels = CAR_MODELS.filter((_, idx) => idx !== this.selectedCarIndex);
-      for (let i = remainingModels.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [remainingModels[i], remainingModels[j]] = [remainingModels[j], remainingModels[i]];
+      let botModels = [];
+      if (this.gameMode === 'CHAMPIONSHIP') {
+        botModels = this.seasonBots.map(b => b.model);
+      } else {
+        const remainingModels = CAR_MODELS.filter((_, idx) => idx !== this.selectedCarIndex);
+        for (let i = remainingModels.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [remainingModels[i], remainingModels[j]] = [remainingModels[j], remainingModels[i]];
+        }
+        botModels = remainingModels;
       }
 
-      // 19 Adversários da CPU com seus carros únicos e distintos
+      // 19 Adversários da CPU com seus carros persistentes e únicos
       for (let slot = 1; slot <= 19; slot++) {
         const profile = this.seasonBots[slot - 1];
-        const botModel = remainingModels[slot - 1] || profile.model;
+        const botModel = botModels[slot - 1] || profile.model;
         const bot = new Car(slot, botModel, false);
         bot.driverName = profile.driverName;
         bot.driverCode = profile.driverCode;
         bot.bodyColor = profile.bodyColor;
+        bot.effectiveMaxSpeed = (this.diffMode === 'ADVANCED') ? 280 : (botModel.maxSpeed || 220);
         const rowFromBack = Math.floor((TOTAL_RACERS - slot) / 2);
         const isLeft = (slot % 2 === 1);
         bot.z = 1600 + rowFromBack * GRID_ROW_SPACING + (isLeft ? GRID_STAGGER_Z : 0);
@@ -331,6 +363,7 @@
       const cleanCode = (this.playerName || 'LEA').replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase();
       this.player.driverCode = cleanCode.length === 3 ? cleanCode : (cleanCode + '___').slice(0, 3);
       this.player.bodyColor = CAR_COLORS[this.colorIndex].hex;
+      this.player.effectiveMaxSpeed = (this.diffMode === 'ADVANCED') ? 280 : (selectedModel.maxSpeed || 220);
       this.player.z = 1600;
       this.player.x = GRID_COL_X;
       this.player.targetX = GRID_COL_X;
@@ -434,6 +467,30 @@
     // FÍSICA E ATUALIZAÇÃO
     // ==========================================
     update(dt) {
+      // Atualização do fade suave de transição dos menus
+      if (this.menuFadeState === 'fading_out') {
+        this.menuFadeAlpha += dt / this.menuFadeDuration;
+        if (this.menuFadeAlpha >= 1) {
+          this.menuFadeAlpha = 1;
+          this.menuFadeState = 'fading_in';
+          if (this.menuFadeTargetState) {
+            this.state = this.menuFadeTargetState;
+          }
+          if (this.menuFadeOnMid) {
+            try { this.menuFadeOnMid(); } catch (e) { console.error(e); }
+          }
+        }
+        return;
+      } else if (this.menuFadeState === 'fading_in') {
+        this.menuFadeAlpha -= dt / this.menuFadeDuration;
+        if (this.menuFadeAlpha <= 0) {
+          this.menuFadeAlpha = 0;
+          this.menuFadeState = 'idle';
+          this.menuFadeTargetState = null;
+          this.menuFadeOnMid = null;
+        }
+      }
+
       if (this.input && typeof this.input.pollGamepad === 'function') {
         this.input.pollGamepad(dt);
       }
@@ -498,7 +555,7 @@
 
         if (shouldAdvance) {
           this.audio.playBeep(480, 0.08);
-          this.state = 'MODE_SELECT';
+          this.fadeTransition('MODE_SELECT');
           this.input.clearPulses();
           return;
         }
@@ -525,7 +582,7 @@
           if (click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
               click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
             this.audio.playBeep(330, 0.06);
-            this.state = 'MENU';
+            this.fadeTransition('MENU');
             this.input.clearPulses();
             return;
           }
@@ -558,20 +615,84 @@
 
         if (this.input.justPressedEnter) {
           this.audio.playBeep(523, 0.12);
-          if (this.selectedModeIndex === 0) {
-            this.gameMode = 'CHAMPIONSHIP';
+          this.gameMode = (this.selectedModeIndex === 0) ? 'CHAMPIONSHIP' : 'QUICK_RACE';
+          this.selectedDiffIndex = 0;
+          this.fadeTransition('DIFFICULTY_SELECT');
+          this.input.clearPulses();
+          return;
+        }
+
+        if (this.input.justPressedEsc) {
+          this.audio.playBeep(330, 0.06);
+          this.fadeTransition('MENU');
+          this.input.clearPulses();
+          return;
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      if (this.state === 'DIFFICULTY_SELECT') {
+        if (this.nameWrapper) this.nameWrapper.classList.remove('show');
+        this.audio.silenceEffects();
+        this.audio.playTitleMusic();
+        this.menuCameraZ = this.wrapZ(this.menuCameraZ + 850 * dt);
+        this.cameraRoll = 0;
+        this.shake = 0;
+        this.updateSkyScroll(dt);
+        this.updateEnv(dt);
+
+        const L = this.getDifficultySelectLayout();
+        if (this.input.lastCanvasClick) {
+          const click = this.input.lastCanvasClick;
+          this.input.lastCanvasClick = null;
+
+          if (click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
+              click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
+            this.audio.playBeep(330, 0.06);
+            this.fadeTransition('MODE_SELECT');
+            this.input.clearPulses();
+            return;
+          }
+
+          if (click.x >= L.card0.x && click.x <= L.card0.x + L.card0.w &&
+              click.y >= L.card0.y && click.y <= L.card0.y + L.card0.h) {
+            this.selectedDiffIndex = 0;
+            this.audio.playBeep(440, 0.06);
+          }
+
+          if (click.x >= L.card1.x && click.x <= L.card1.x + L.card1.w &&
+              click.y >= L.card1.y && click.y <= L.card1.y + L.card1.h) {
+            this.selectedDiffIndex = 1;
+            this.audio.playBeep(440, 0.06);
+          }
+
+          if (click.x >= L.btnConfirm.x && click.x <= L.btnConfirm.x + L.btnConfirm.w &&
+              click.y >= L.btnConfirm.y && click.y <= L.btnConfirm.y + L.btnConfirm.h) {
+            this.input.justPressedEnter = true;
+          }
+        }
+
+        if (this.input.justPressedLeft || this.input.justPressedRight || this.input.justPressedUp || this.input.justPressedDown) {
+          this.selectedDiffIndex = this.selectedDiffIndex === 0 ? 1 : 0;
+          this.audio.playBeep(440, 0.05);
+        }
+
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(523, 0.12);
+          this.diffMode = (this.selectedDiffIndex === 0) ? 'NORMAL' : 'ADVANCED';
+          if (this.gameMode === 'CHAMPIONSHIP') {
             this.seasonSchedule = this.getChampionshipSchedule();
             this.seasonStage = 0;
             this.trackIndex = this.seasonSchedule[0];
             this.loadTrack(this.trackIndex);
             this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
-            this.state = 'CAR_SELECT';
+            this.fadeTransition('CAR_SELECT');
           } else {
-            this.gameMode = 'QUICK_RACE';
             this.selectedQuickTrackIndex = 0;
             this.trackIndex = 0;
             this.loadTrack(0);
-            this.state = 'TRACK_SELECT';
+            this.fadeTransition('TRACK_SELECT');
           }
           this.input.clearPulses();
           return;
@@ -579,8 +700,11 @@
 
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = 'MENU';
+          this.fadeTransition('MODE_SELECT');
+          this.input.clearPulses();
+          return;
         }
+
         this.input.clearPulses();
         return;
       }
@@ -604,7 +728,7 @@
           if (L.btnBack && click.x >= L.btnBack.x && click.x <= L.btnBack.x + L.btnBack.w &&
               click.y >= L.btnBack.y && click.y <= L.btnBack.y + L.btnBack.h) {
             this.audio.playBeep(330, 0.06);
-            this.state = 'MODE_SELECT';
+            this.fadeTransition('DIFFICULTY_SELECT');
             this.input.clearPulses();
             return;
           }
@@ -690,14 +814,14 @@
           this.trackIndex = this.selectedQuickTrackIndex;
           this.loadTrack(this.trackIndex);
           this.colorIndex = MODEL_DEFAULT_COLOR[CAR_MODELS[this.selectedCarIndex].id] || 0;
-          this.state = 'CAR_SELECT';
+          this.fadeTransition('CAR_SELECT');
           this.input.clearPulses();
           return;
         }
 
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = 'MODE_SELECT';
+          this.fadeTransition('DIFFICULTY_SELECT');
         }
         this.input.clearPulses();
         return;
@@ -722,7 +846,7 @@
           if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
               click.y >= btnBack.y && click.y <= btnBack.y + btnBack.h) {
             this.audio.playBeep(330, 0.06);
-            this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
+            this.fadeTransition((this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'DIFFICULTY_SELECT');
             this.input.clearPulses();
             return;
           }
@@ -731,7 +855,7 @@
           if (btnConfirm && click.x >= btnConfirm.x && click.x <= btnConfirm.x + btnConfirm.w &&
               click.y >= btnConfirm.y && click.y <= btnConfirm.y + btnConfirm.h) {
             this.audio.playBeep(523, 0.12);
-            this.state = 'COLOR_SELECT';
+            this.fadeTransition('COLOR_SELECT');
             this.input.clearPulses();
             return;
           }
@@ -788,7 +912,7 @@
         }
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = (this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'MODE_SELECT';
+          this.fadeTransition((this.gameMode === 'QUICK_RACE') ? 'TRACK_SELECT' : 'DIFFICULTY_SELECT');
         }
         this.input.clearPulses();
         return;
@@ -816,7 +940,7 @@
           if (btnBack && click.x >= btnBack.x && click.x <= btnBack.x + btnBack.w &&
               click.y >= btnBack.y && click.y <= btnBack.y + btnBack.h) {
             this.audio.playBeep(330, 0.06);
-            this.state = 'CAR_SELECT';
+            this.fadeTransition('CAR_SELECT');
             this.input.clearPulses();
             return;
           }
@@ -825,7 +949,7 @@
           if (btnConfirm && click.x >= btnConfirm.x && click.x <= btnConfirm.x + btnConfirm.w &&
               click.y >= btnConfirm.y && click.y <= btnConfirm.y + btnConfirm.h) {
             this.audio.playBeep(523, 0.12);
-            this.state = 'NAME_INPUT';
+            this.fadeTransition('NAME_INPUT');
             if (this.nameWrapper) this.nameWrapper.classList.add('show');
             if (this.nameInput) {
               this.nameInput.value = this.playerName || 'JOGADOR';
@@ -915,7 +1039,7 @@
 
         if (this.input.justPressedEsc) {
           this.audio.playBeep(330, 0.06);
-          this.state = 'CAR_SELECT';
+          this.fadeTransition('CAR_SELECT');
           this.input.clearPulses();
           return;
         }
@@ -955,7 +1079,7 @@
             if (this.nameWrapper) this.nameWrapper.classList.remove('show');
             if (this.nameInput) this.nameInput.blur();
             this.audio.playBeep(330, 0.06);
-            this.state = 'COLOR_SELECT';
+            this.fadeTransition('COLOR_SELECT');
             this.input.clearPulses();
             return;
           }
@@ -1187,14 +1311,31 @@
         if (this.input.justPressedEnter) {
           this.audio.playBeep(440, 0.1);
           if (this.gameMode === 'QUICK_RACE') {
-            this.state = 'MENU';
-            this.audio.musicPlaying = false;
-            this.audio.playTitleMusic();
-          } else if (this.seasonSchedule && this.seasonSchedule.length > 0 && this.seasonStage < this.seasonSchedule.length - 1) {
+            this.fadeTransition('MENU', () => {
+              this.audio.musicPlaying = false;
+              this.audio.playTitleMusic();
+            });
+          } else {
+            this.fadeTransition('CHAMPIONSHIP_STANDINGS');
+          }
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      if (this.state === 'CHAMPIONSHIP_STANDINGS') {
+        this.audio.silenceEffects();
+        if (this.input.lastCanvasClick) {
+          this.input.lastCanvasClick = null;
+          this.input.justPressedEnter = true;
+        }
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(440, 0.1);
+          const hasNext = (this.seasonSchedule && this.seasonSchedule.length > 0 && this.seasonStage < this.seasonSchedule.length - 1);
+          if (hasNext) {
             this.seasonStage++;
             this.trackIndex = this.seasonSchedule[this.seasonStage];
             this.loadTrack(this.trackIndex);
-            // Sorteia uma música aleatória diferente da anterior para a próxima etapa do campeonato
             const curSong = this.songIndex;
             let nextSong = curSong;
             if (SONGS.length > 1) {
@@ -1205,8 +1346,9 @@
             this.songIndex = nextSong;
             this.startRaceCountdown();
           } else {
-            this.state = 'CHAMPIONSHIP_RESULT';
-            this.initConfetti();
+            this.fadeTransition('CHAMPIONSHIP_RESULT', () => {
+              this.initConfetti();
+            });
           }
         }
         this.input.clearPulses();
@@ -1222,12 +1364,43 @@
         }
         if (this.input.justPressedEnter) {
           this.audio.playBeep(440, 0.1);
+          const overall = this.cars.map(c => ({
+            car: c,
+            points: this.championshipPoints[c.id] || 0
+          })).sort((a, b) => b.points - a.points);
+          const pFinalRank = overall.findIndex(o => o.car.isPlayer) + 1;
+          const isTop3 = pFinalRank <= 3;
+          this.fadeTransition('ENDING_SCENE', () => {
+            this.endingTimer = 0;
+            this.endingRank = pFinalRank;
+            this.endingFireworks = [];
+            this.initConfetti();
+            if (this.audio) this.audio.playEndingMusic(isTop3);
+          });
+        }
+        this.input.clearPulses();
+        return;
+      }
+
+      if (this.state === 'ENDING_SCENE') {
+        this.audio.silenceEffects();
+        this.endingTimer += dt;
+        this.updateConfetti(dt);
+        this.updateEndingFireworks(dt);
+        if (this.input.lastCanvasClick) {
+          this.input.lastCanvasClick = null;
+          this.input.justPressedEnter = true;
+        }
+        if (this.input.justPressedEnter) {
+          this.audio.playBeep(440, 0.1);
+          if (this.audio) {
+            this.audio.stopEndingMusic();
+            this.audio.playTitleMusic();
+          }
           this.championshipPoints.fill(0);
           this.initSeasonRoster();
           this.loadTrack(0);
-          this.state = 'MENU';
-          this.audio.musicPlaying = false;
-          this.audio.playTitleMusic();
+          this.fadeTransition('MENU');
         }
         this.input.clearPulses();
         return;
@@ -1403,7 +1576,7 @@
       const nitroBoostRatio = p.isNitro
         ? 0.30
         : (p.nitroDecayTimer > 0 ? (0.30 * (p.nitroDecayTimer / 3.0)) : 0);
-      const baseMax = model.maxSpeed * (1.0 + nitroBoostRatio);
+      const baseMax = this.getEffectiveMaxSpeed(p) * (1.0 + nitroBoostRatio);
       const speedGapBonus = (p.slipstreamTarget && p.slipstreamTarget.speed > p.speed)
         ? (p.slipstreamTarget.speed - p.speed) * 0.85 * effectiveSlipInt
         : 0;
@@ -1476,8 +1649,9 @@
         const downhillTerminalSpeed = dynamicMaxSpeed + 35;
         p.speed = Math.min(downhillTerminalSpeed, p.speed + gravityForce);
         // Trepidação de chassi proporcional ao excesso de velocidade na descida (reduzida pela metade)
-        if (p.speed > model.maxSpeed) {
-          const overDiff = (p.speed - model.maxSpeed);
+        const pEffMax = this.getEffectiveMaxSpeed(p);
+        if (p.speed > pEffMax) {
+          const overDiff = (p.speed - pEffMax);
           this.shake = Math.max(this.shake, Math.min(1.4, overDiff * 0.04));
         }
       } else if (p.speed > 10 && slope > 0) {
@@ -1624,8 +1798,13 @@
         } else {
           this.lapBannerText = `VOLTA ${p.laps + 1} / ${TOTAL_LAPS}`;
           if (p.laps + 1 === TOTAL_LAPS) {
+            this.isLastLapBanner = true;
+            this.lapBannerTimer = 3.2;
+            this.audio.playBeep(880, 0.15);
+            setTimeout(() => this.audio.playBeep(1100, 0.25), 160);
             if (this.radio) this.radio.speak("Atenção: última volta! Dê tudo de si!", true);
           } else {
+            this.isLastLapBanner = false;
             if (this.radio) this.radio.speak(`Volta ${p.laps + 1}! Mantenha a pressão!`, false);
           }
         }
@@ -1663,7 +1842,7 @@
 
         const botSeg = this.findSegment(bot.z);
         const botSlope = (botSeg.p2.world.y - botSeg.p1.world.y) / SEGMENT_LENGTH;
-        let baseTargetSpeed = bot.model.maxSpeed * bot.aiSkill * 0.96;
+        let baseTargetSpeed = this.getEffectiveMaxSpeed(bot) * bot.aiSkill * 0.96;
         if (Math.abs(botSeg.curve) > 2.0) baseTargetSpeed *= 0.86;
         // Gravidade para os rivais também (embalam na descida e pesam na subida)
         baseTargetSpeed += Math.max(-45, -botSlope * 210);
@@ -1721,7 +1900,7 @@
           : (bot.nitroDecayTimer > 0 ? (0.30 * (bot.nitroDecayTimer / 3.0)) : 0);
         const botDownhillBonus = Math.max(0, -botSlope * 240);
         const botBaseMax = (bot.isNitro || bot.nitroDecayTimer > 0)
-          ? (bot.model.maxSpeed * (1.0 + botNitroBoostMul)) + botDownhillBonus
+          ? (this.getEffectiveMaxSpeed(bot) * (1.0 + botNitroBoostMul)) + botDownhillBonus
           : baseTargetSpeed;
         const botCatchBonus = (leadCar && leadCar.speed > bot.speed)
           ? (leadCar.speed - bot.speed) * 0.85 * botSlipInt
@@ -1735,7 +1914,7 @@
 
         // Bônus do Nitro ativo do Bot (soma com descida de ladeira)
         if (bot.isNitro) {
-          targetSpeed = (bot.model.maxSpeed * 1.30) + botDownhillBonus;
+          targetSpeed = (this.getEffectiveMaxSpeed(bot) * 1.30) + botDownhillBonus;
         }
 
         // Inteligência de Uso dos 3 Nitros pelos Bots
@@ -1744,7 +1923,7 @@
           // Caso 1: Vácuo próximo querendo ultrapassar na reta (slingshot)
           const shouldDraftPass = leadCar && leadDist < 240 && isStraight && (bot.speed > 130);
           // Caso 2: Saída de curva para reta acelerando forte
-          const shouldExitLaunch = isStraight && bot.speed < bot.model.maxSpeed * 0.82 && Math.random() < 0.04;
+          const shouldExitLaunch = isStraight && bot.speed < this.getEffectiveMaxSpeed(bot) * 0.82 && Math.random() < 0.04;
           // Caso 3: Disputa acirrada com o jogador (defendendo ou atacando na 2ª e 3ª voltas)
           const playerDist = Math.abs(this.shortestDeltaZ(this.player.z, bot.z));
           const shouldFightPlayer = playerDist < 260 && (this.player.laps >= 1 || isStraight) && Math.random() < 0.06;
@@ -1805,7 +1984,7 @@
         } else {
           bot.isBraking = false;
           if (bot.speed < targetSpeed) {
-            const botSpeedRatio = Math.max(0, bot.speed / (bot.model.maxSpeed || 220));
+            const botSpeedRatio = Math.max(0, bot.speed / this.getEffectiveMaxSpeed(bot));
             const botAirDrag = Math.pow(Math.min(1.0, botSpeedRatio), 1.6) * 0.58;
             const botTorque = Math.max(0.32, 1.28 - botAirDrag);
             const nitroAccel = bot.isNitro ? 1.75 : (bot.nitroDecayTimer > 0 ? (1.0 + 0.75 * (bot.nitroDecayTimer / 3.0)) : 1.0);
@@ -1886,7 +2065,7 @@
 
           // Rival recebe um impulso direto para frente (estilo Top Gear)
           const forwardImpulse = 28 + Math.min(42, speedDiff * 0.55);
-          bot.speed = Math.min(bot.speed + forwardImpulse, bot.model.maxSpeed * 1.25);
+          bot.speed = Math.min(bot.speed + forwardImpulse, this.getEffectiveMaxSpeed(bot) * 1.25);
           bot.bumpBoostTimer = 1.8; // Mantem o impulso sem a IA frear de imediato
           bot.z = this.wrapZ(bot.z + 20);
           bot.totalDistance += 20;
@@ -1903,7 +2082,7 @@
           if (bot.speed > p.speed + 10) {
             didCollide = true;
             bot.speed = Math.max(30, p.speed * 0.82);
-            const playerTopSpeed = (p.isNitro ? (model.maxSpeed * 1.30) : model.maxSpeed);
+            const pMaxVal = this.getEffectiveMaxSpeed(p); const playerTopSpeed = (p.isNitro ? (pMaxVal * 1.30) : pMaxVal);
             p.speed = Math.min(p.speed + 22, playerTopSpeed * 1.10);
             bot.z = this.wrapZ(p.z - 46);
             this.shake = 2.0;
@@ -2145,7 +2324,7 @@
 
       this.renderParticles(ctx);
 
-      if (this.player && this.state === 'RACING' && (this.player.isNitro || this.player.speed > (this.player.model ? this.player.model.maxSpeed * 0.92 : 200))) {
+      if (this.player && this.state === 'RACING' && (this.player.isNitro || this.player.speed > this.getEffectiveMaxSpeed(this.player) * 0.92)) {
         this.renderSpeedLines(ctx);
       }
       ctx.restore();
@@ -2200,10 +2379,16 @@
         this.renderRaceSetup(ctx);
       } else if (this.state === 'PAUSED') {
         this.renderPauseMenu(ctx);
+      } else if (this.state === 'DIFFICULTY_SELECT') {
+        this.renderDifficultySelect(ctx);
       } else if (this.state === 'RACE_RESULT') {
         this.renderRaceResult(ctx);
+      } else if (this.state === 'CHAMPIONSHIP_STANDINGS') {
+        this.renderChampionshipStandings(ctx);
       } else if (this.state === 'CHAMPIONSHIP_RESULT') {
         this.renderChampionshipResult(ctx);
+      } else if (this.state === 'ENDING_SCENE') {
+        this.renderEndingScene(ctx);
       }
 
       // Notificação Arcade de Detecção de Gamepad / Joystick Nativo
@@ -2225,6 +2410,15 @@
         ctx.font = 'bold 7.5px monospace';
         const cleanName = (this.input.gamepadName || 'GAMESIR / CONTROLE NATIVO').slice(0, 32);
         ctx.fillText(`🎮 CONTROLE DETECTADO: ${cleanName}`, INTERNAL_WIDTH / 2, bY + 13);
+        ctx.restore();
+      }
+
+      // Overlay de transição suave fade dos menus
+      if (this.menuFadeAlpha > 0) {
+        ctx.save();
+        ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+        ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, Math.max(0, this.menuFadeAlpha))})`;
+        ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
         ctx.restore();
       }
     }
@@ -2333,7 +2527,7 @@
       if (!this.track) return;
       let seg = null;
       let segPerSec = 0;
-      if (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP') {
+      if (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP') {
         seg = this.findSegment(this.menuCameraZ);
         segPerSec = (this.state === 'MENU' ? 1100 : 850) / SEGMENT_LENGTH;
       } else if (this.player && (this.state === 'RACING' || this.state === 'COUNTDOWN')) {
@@ -2349,7 +2543,7 @@
       if (!E) return;
       const css = E.css;
       const S = E.s;
-      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'RACE_SETUP');
       const camZ = isAttract ? this.menuCameraZ : (this.player ? this.wrapZ(this.player.z - PLAYER_Z_OFFSET) : 0);
       const baseSeg = this.findSegment(camZ);
       const curveShift = baseSeg.curve * 2.0;
@@ -3106,7 +3300,7 @@
 
 
     renderRoad(ctx, def) {
-      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT');
+      const isAttract = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT');
       const p = isAttract ? { z: this.menuCameraZ, x: 0 } : (this.player || { z: 1600, x: 0 });
       const playerZ = this.wrapZ(p.z);
       // Quando o nosso carro bandeirou, a câmera PARA exatamente no local da bandeirada:
@@ -3152,7 +3346,7 @@
       }
 
       const spd = (!isAttract && this.player) ? this.player.speed : 0;
-      const normalMax = (this.player && this.player.model) ? this.player.model.maxSpeed : 220;
+      const normalMax = this.getEffectiveMaxSpeed(this.player);
       const overspeedRatio = Math.max(0, (spd - normalMax) / 70);
       const spdFactor = Math.min(1.0, (spd / normalMax) * 0.70 + overspeedRatio * 0.30);
       // Sensação de velocidade: FOV dinâmico suave mantendo a altura da pista e horizonte equilibrados
@@ -4428,7 +4622,7 @@
     renderSpeedLines(ctx) {
       if (!this.player || !this.player.model) return;
       const spd = this.player.speed;
-      const maxSpd = (this.player.model && this.player.model.maxSpeed) ? this.player.model.maxSpeed : 220;
+      const maxSpd = this.getEffectiveMaxSpeed(this.player);
       const isNitro = this.player.isNitro;
       const isOverspeed = (spd > maxSpd + 2);
       if (!isNitro && !isOverspeed && spd < maxSpd * 0.90) return;
@@ -4727,7 +4921,7 @@
 
       // --- Tacômetro Curvado de Velocidade/RPM estilo Top Gear 2 ---
       const segCount = 14;
-      const maxRefSpeed = Math.max(180, (this.player.model.maxSpeed || 200) * 1.15);
+      const maxRefSpeed = Math.max(180, this.getEffectiveMaxSpeed(this.player) * 1.15);
       const spdRatio = Math.max(0, Math.min(1, this.player.speed / maxRefSpeed));
       const activeSegs = Math.round(spdRatio * segCount);
 
@@ -5007,16 +5201,36 @@
       ctx.fillRect(mapBoxX + 5 + pPt.x * (mapBoxW - 10) - 2, mapBoxY + 5 + pPt.z * (mapBoxH - 10) - 2, 4, 4);
 
       if (this.lapBannerTimer > 0) {
-        const lbW = 152;
-        ctx.fillStyle = 'rgba(8, 12, 22, 0.90)';
-        ctx.fillRect(INTERNAL_WIDTH / 2 - lbW / 2, 48, lbW, 24);
-        ctx.strokeStyle = '#FFD700';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(INTERNAL_WIDTH / 2 - lbW / 2, 48, lbW, 24);
-        ctx.fillStyle = '#FFD700';
-        ctx.font = 'bold 12px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(this.lapBannerText, INTERNAL_WIDTH / 2, 64);
+        if (this.isLastLapBanner) {
+          const lbW = 204;
+          const lbH = 28;
+          const lbX = INTERNAL_WIDTH / 2 - lbW / 2;
+          const lbY = 44;
+          const pulse = (Math.sin(performance.now() / 80) + 1) * 0.5;
+          ctx.fillStyle = 'rgba(10, 4, 16, 0.94)';
+          ctx.fillRect(lbX, lbY, lbW, lbH);
+          ctx.strokeStyle = pulse > 0.5 ? '#FFD700' : '#FF1744';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(lbX, lbY, lbW, lbH);
+          ctx.fillStyle = pulse > 0.5 ? '#FF1744' : '#FFD700';
+          ctx.font = 'bold 11px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚠️ ÚLTIMA VOLTA! ⚠️', INTERNAL_WIDTH / 2, lbY + 13);
+          ctx.fillStyle = '#00E5FF';
+          ctx.font = 'bold 7.5px monospace';
+          ctx.fillText('FINAL LAP — DÊ TUDO DE SI NA PISTA!', INTERNAL_WIDTH / 2, lbY + 23);
+        } else {
+          const lbW = 152;
+          ctx.fillStyle = 'rgba(8, 12, 22, 0.90)';
+          ctx.fillRect(INTERNAL_WIDTH / 2 - lbW / 2, 48, lbW, 24);
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(INTERNAL_WIDTH / 2 - lbW / 2, 48, lbW, 24);
+          ctx.fillStyle = '#FFD700';
+          ctx.font = 'bold 12px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(this.lapBannerText, INTERNAL_WIDTH / 2, 64);
+        }
       }
 
       ctx.restore();
@@ -6193,7 +6407,11 @@
       const s2 = s1 + statW + 6;
       const s3 = s2 + statW + 6;
       const statY = bY + (touchSafe ? 69 : 78);
-      this.drawStat(ctx, s1, statY, 'VELOCIDADE', (car.maxSpeed - 190) / 115, '#FF5252', statW);
+      const isAdv = (this.diffMode === 'ADVANCED');
+      const dispSpeed = isAdv ? 280 : car.maxSpeed;
+      const speedRatio = (dispSpeed - 190) / 115;
+      const speedLabel = isAdv ? 'VEL. (280 FIXO)' : 'VELOCIDADE';
+      this.drawStat(ctx, s1, statY, speedLabel, speedRatio, '#FF5252', statW);
       this.drawStat(ctx, s2, statY, 'ACELERAÇÃO', car.acceleration, '#FFB300', statW);
       this.drawStat(ctx, s3, statY, 'CONTROLE', car.handling, '#00E676', statW);
 
@@ -6730,12 +6948,9 @@
         if (this.gameMode === 'QUICK_RACE') {
           nextPrompt = touchSafe ? 'TOQUE / [3] — VOLTAR AO MENU' : 'PRESSIONE [ENTER] PARA VOLTAR AO MENU';
         } else {
-          const hasNext = (this.seasonSchedule && this.seasonSchedule.length > 0)
-            ? (this.seasonStage < this.seasonSchedule.length - 1)
-            : (this.trackIndex < TRACK_DEFINITIONS.length - 1);
           nextPrompt = touchSafe
-            ? (hasNext ? 'TOQUE / [3] — PRÓXIMA ETAPA' : 'TOQUE / [3] — PÓDIO FINAL')
-            : (hasNext ? 'PRESSIONE [ENTER] PARA A PRÓXIMA ETAPA' : 'PRESSIONE [ENTER] PARA VER O GRANDE PÓDIO E CAMPEÃO');
+            ? 'TOQUE / [3] — VER TABELA GERAL'
+            : 'PRESSIONE [ENTER] PARA VER A CLASSIFICAÇÃO GERAL';
         }
         ctx.fillText(nextPrompt, INTERNAL_WIDTH / 2, 196);
       }
@@ -6879,10 +7094,26 @@
       if (blink) {
         ctx.fillStyle = '#FFD700';
         ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9.5px monospace';
-        const restartMsg = touchSafe ? 'TOQUE / [3] — INICIAR NOVO CAMPEONATO' : 'PRESSIONE [ENTER] PARA INICIAR NOVO CAMPEONATO';
+        const restartMsg = touchSafe ? 'TOQUE / [3] — VER ENCERRAMENTO DA TEMPORADA' : 'PRESSIONE [ENTER] PARA VER O ENCERRAMENTO DA TEMPORADA';
         ctx.fillText(restartMsg, INTERNAL_WIDTH / 2, 198);
       }
       ctx.restore();
+    }
+
+    fadeTransition(targetState, onMid = null) {
+      if (this.menuFadeState !== 'idle') return;
+      this.menuFadeState = 'fading_out';
+      this.menuFadeAlpha = 0;
+      this.menuFadeTargetState = targetState;
+      this.menuFadeOnMid = onMid;
+      if (this.input) this.input.clearPulses();
+    }
+
+    getEffectiveMaxSpeed(car) {
+      if (!car) return 220;
+      if (this.diffMode === 'ADVANCED') return 280;
+      if (car.effectiveMaxSpeed) return car.effectiveMaxSpeed;
+      return (car.model && car.model.maxSpeed) ? car.model.maxSpeed : (car.maxSpeed || 220);
     }
 
     formatTime(sec) {
@@ -6891,6 +7122,565 @@
       const s = Math.floor(sec % 60);
       const ms = Math.floor((sec % 1) * 100);
       return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+    }
+
+
+    getDifficultySelectLayout() {
+      const touchSafe = this.input.touchControlsVisible;
+      const cardW = touchSafe ? 152 : 166;
+      const cardH = touchSafe ? 122 : 138;
+      const cardY = touchSafe ? 34 : 36;
+      const gap = touchSafe ? 12 : 14;
+      const totalW = cardW * 2 + gap;
+      const startX = Math.round((INTERNAL_WIDTH - totalW) / 2);
+      const card0 = { x: startX, y: cardY, w: cardW, h: cardH };
+      const card1 = { x: startX + cardW + gap, y: cardY, w: cardW, h: cardH };
+      const btnW = touchSafe ? 86 : 98;
+      const btnH = touchSafe ? 18 : 20;
+      const btnY = touchSafe ? 168 : 184;
+      const btnBack = { x: startX, y: btnY, w: btnW, h: btnH };
+      const btnConfirm = { x: startX + totalW - btnW, y: btnY, w: btnW, h: btnH };
+      return { touchSafe, cardW, cardH, cardY, card0, card1, btnBack, btnConfirm };
+    }
+
+    renderDifficultySelect(ctx) {
+      const L = this.getDifficultySelectLayout();
+      const touchSafe = L.touchSafe;
+      const now = performance.now();
+
+      ctx.fillStyle = 'rgba(6, 9, 18, 0.84)';
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
+      ctx.fillText('NÍVEL DE DESAFIO', INTERNAL_WIDTH / 2, touchSafe ? 19 : 23);
+
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 6.8px monospace' : 'bold 7.8px monospace';
+      ctx.fillText('SELECIONE O MODO DE VELOCIDADE DOS CARROS', INTERNAL_WIDTH / 2, touchSafe ? 29 : 33);
+
+      const diffs = [
+        {
+          id: 0,
+          title: 'MODO NORMAL',
+          icon: '🏁',
+          badge: 'ORIGINAL LH44',
+          color: '#00E5FF',
+          lines: [
+            '• VELOCIDADES DE FÁBRICA',
+            '• CARROS DE 190 A 305 KM/H',
+            '• PROGRESSÃO CLÁSSICA'
+          ],
+          box: L.card0
+        },
+        {
+          id: 1,
+          title: 'MODO AVANÇADO',
+          icon: '⚡',
+          badge: 'IGUALDADE 280 KM/H',
+          color: '#FFD700',
+          lines: [
+            '• VELOCIDADE FINAL: 280 KM/H',
+            '• FUSCA & UNO A 280 KM/H!',
+            '• CURVAS, NITRO & CÂMBIO 100%'
+          ],
+          box: L.card1
+        }
+      ];
+
+      for (let m = 0; m < diffs.length; m++) {
+        const item = diffs[m];
+        const isSelected = (this.selectedDiffIndex === item.id);
+        const { x, y, w, h } = item.box;
+
+        const cardGrad = ctx.createLinearGradient(x, y, x, y + h);
+        if (isSelected) {
+          cardGrad.addColorStop(0, 'rgba(18, 30, 52, 0.96)');
+          cardGrad.addColorStop(1, 'rgba(10, 16, 30, 0.98)');
+        } else {
+          cardGrad.addColorStop(0, 'rgba(12, 16, 26, 0.88)');
+          cardGrad.addColorStop(1, 'rgba(6, 9, 16, 0.92)');
+        }
+        ctx.fillStyle = cardGrad;
+        ctx.fillRect(x, y, w, h);
+
+        if (isSelected) {
+          const pulse = (Math.sin(now / 140) + 1) * 0.5;
+          ctx.strokeStyle = item.color;
+          ctx.lineWidth = 2.2;
+          ctx.strokeRect(x, y, w, h);
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 + pulse * 0.4})`;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+        } else {
+          ctx.strokeStyle = 'rgba(70, 90, 120, 0.45)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, w, h);
+        }
+
+        const badgeW = touchSafe ? 90 : 100;
+        const badgeH = touchSafe ? 11 : 12;
+        const badgeX = x + Math.round((w - badgeW) / 2);
+        const badgeY = y + 7;
+        ctx.fillStyle = isSelected ? item.color : 'rgba(70, 90, 120, 0.5)';
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+        ctx.fillStyle = isSelected ? '#0A0F1A' : '#CFD8DC';
+        ctx.font = 'bold 6.2px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.badge, badgeX + badgeW / 2, badgeY + badgeH - 3);
+
+        ctx.font = touchSafe ? '22px monospace' : '26px monospace';
+        ctx.fillText(item.icon, x + w / 2, y + (touchSafe ? 40 : 46));
+
+        ctx.font = touchSafe ? 'bold 8.2px monospace' : 'bold 9.2px monospace';
+        ctx.fillStyle = isSelected ? item.color : '#ECEFF1';
+        ctx.fillText(item.title, x + w / 2, y + (touchSafe ? 55 : 63));
+
+        ctx.textAlign = 'left';
+        ctx.font = touchSafe ? '6.2px monospace' : '7.0px monospace';
+        ctx.fillStyle = isSelected ? '#ECEFF1' : '#90A4AE';
+        const lineStartY = y + (touchSafe ? 70 : 80);
+        const lineSpacing = touchSafe ? 12 : 14;
+        for (let li = 0; li < item.lines.length; li++) {
+          ctx.fillText(item.lines[li], x + 10, lineStartY + li * lineSpacing);
+        }
+      }
+
+      // BOTÃO ◀ VOLTAR
+      const bB = L.btnBack;
+      ctx.fillStyle = 'rgba(20, 28, 44, 0.92)';
+      ctx.fillRect(bB.x, bB.y, bB.w, bB.h);
+      ctx.strokeStyle = '#546E7A';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bB.x, bB.y, bB.w, bB.h);
+      ctx.fillStyle = '#CFD8DC';
+      ctx.font = 'bold 7.5px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('◀ VOLTAR', bB.x + bB.w / 2, bB.y + bB.h / 2 + 2.5);
+
+      // BOTÃO CONTINUAR ▶
+      const bC = L.btnConfirm;
+      const confirmGrad = ctx.createLinearGradient(bC.x, bC.y, bC.x, bC.y + bC.h);
+      confirmGrad.addColorStop(0, '#FFD700');
+      confirmGrad.addColorStop(1, '#FF8F00');
+      ctx.fillStyle = confirmGrad;
+      ctx.fillRect(bC.x, bC.y, bC.w, bC.h);
+      ctx.strokeStyle = '#FFE082';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(bC.x, bC.y, bC.w, bC.h);
+      ctx.fillStyle = '#0A0F1A';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('CONTINUAR ▶', bC.x + bC.w / 2, bC.y + bC.h / 2 + 2.5);
+
+      ctx.restore();
+    }
+
+    renderChampionshipStandings(ctx) {
+      const touchSafe = this.input.touchControlsVisible;
+      ctx.fillStyle = 'rgba(5, 8, 16, 0.95)';
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#FFD700';
+      ctx.font = touchSafe ? 'bold 10.5px monospace' : 'bold 12px monospace';
+      const totalStages = (this.seasonSchedule && this.seasonSchedule.length) ? this.seasonSchedule.length : TRACK_DEFINITIONS.length;
+      const currentStageNum = (this.seasonStage !== undefined ? this.seasonStage : 0) + 1;
+      ctx.fillText('🏆 CLASSIFICAÇÃO GERAL DO CAMPEONATO 🏆', INTERNAL_WIDTH / 2, 16);
+
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = 'bold 7.2px monospace';
+      ctx.fillText(`PONTOS ACUMULADOS APÓS ETAPA ${currentStageNum} DE ${totalStages}`, INTERNAL_WIDTH / 2, 26);
+
+      const rankedOverall = this.cars.map(c => ({
+        car: c,
+        points: this.championshipPoints[c.id] || 0,
+        stagePoints: c.racePoints || 0
+      })).sort((a, b) => b.points - a.points);
+
+      const colW = Math.min(182, Math.floor((INTERNAL_WIDTH - 20) / 2));
+      const leftX = Math.floor((INTERNAL_WIDTH / 2) - colW - 3);
+      const rightX = Math.floor((INTERNAL_WIDTH / 2) + 3);
+      const tableY = 32;
+      const rowH = 12.2;
+      const headH = 12;
+
+      const drawStandingsCol = (colX, startRank, endRank) => {
+        const colH = headH + (endRank - startRank + 1) * rowH + 2;
+        ctx.fillStyle = 'rgba(12, 18, 30, 0.94)';
+        ctx.fillRect(colX, tableY, colW, colH);
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(colX, tableY, colW, colH);
+
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
+        ctx.fillRect(colX, tableY, colW, headH);
+
+        ctx.font = 'bold 6.8px monospace';
+        ctx.fillStyle = '#00E5FF';
+        ctx.textAlign = 'left';
+        ctx.fillText('POS', colX + 4, tableY + 8.5);
+        ctx.fillText('PILOTO', colX + 25, tableY + 8.5);
+        ctx.fillText('CARRO', colX + 104, tableY + 8.5);
+        ctx.textAlign = 'right';
+        ctx.fillText('ETAPA', colX + colW - 32, tableY + 8.5);
+        ctx.fillText('TOTAL', colX + colW - 4, tableY + 8.5);
+
+        for (let r = startRank; r <= endRank; r++) {
+          const item = rankedOverall[r - 1];
+          if (!item) continue;
+          const car = item.car;
+          const y = tableY + headH + (r - startRank) * rowH;
+          const isPlayer = car.isPlayer;
+
+          if (isPlayer) {
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
+            ctx.fillRect(colX + 1, y, colW - 2, rowH - 0.5);
+          } else if (r % 2 === 0) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.025)';
+            ctx.fillRect(colX + 1, y, colW - 2, rowH - 0.5);
+          }
+
+          let posColor = '#90A4AE';
+          let nameColor = '#ECEFF1';
+          if (isPlayer) {
+            posColor = '#FFD700';
+            nameColor = '#FFD700';
+          } else if (r === 1) {
+            posColor = '#FFD700';
+            nameColor = '#FFE082';
+          } else if (r === 2) {
+            posColor = '#ECEFF1';
+            nameColor = '#E0F7FA';
+          } else if (r === 3) {
+            posColor = '#CD7F32';
+            nameColor = '#FFE0B2';
+          }
+
+          ctx.font = isPlayer ? 'bold 7.2px monospace' : '7px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillStyle = posColor;
+          ctx.fillText(`${String(r).padStart(2, ' ')}º`, colX + 4, y + 8.5);
+
+          ctx.fillStyle = nameColor;
+          const displayName = isPlayer ? `VOCÊ [${car.driverCode}]` : `${car.driverName} [${car.driverCode}]`;
+          ctx.fillText(displayName.slice(0, 15), colX + 25, y + 8.5);
+
+          const mName = car.model?.name || '';
+          const modelShort = mName.includes('UNO') ? 'UNO' : (mName.includes('FUSCA') ? 'FUSCA' : (mName.includes('206') ? '206' : (mName.includes('HB20') ? 'HB20' : mName.slice(0, 5))));
+          ctx.fillStyle = isPlayer ? '#FFD700' : '#80CBC4';
+          ctx.fillText(modelShort, colX + 104, y + 8.5);
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = item.stagePoints > 0 ? '#69F0AE' : '#546E7A';
+          ctx.fillText(item.stagePoints > 0 ? `+${item.stagePoints}` : '-', colX + colW - 32, y + 8.5);
+
+          ctx.fillStyle = isPlayer ? '#FFD700' : '#00E5FF';
+          ctx.font = 'bold 7px monospace';
+          ctx.fillText(`${item.points}`, colX + colW - 4, y + 8.5);
+        }
+      };
+
+      drawStandingsCol(leftX, 1, 10);
+      drawStandingsCol(rightX, 11, 20);
+
+      const pOverallRank = rankedOverall.findIndex(item => item.car.isPlayer) + 1;
+      const pTotalPoints = this.championshipPoints[0] || 0;
+      const leaderPoints = rankedOverall[0]?.points || 0;
+      const diffToLeader = leaderPoints - pTotalPoints;
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 7.8px monospace';
+      if (pOverallRank === 1) {
+        ctx.fillStyle = '#00E676';
+        ctx.fillText(`VOCÊ É O LÍDER DO CAMPEONATO! TOTAL: ${pTotalPoints} PONTOS!`, INTERNAL_WIDTH / 2, 178);
+      } else {
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText(`SUA POSIÇÃO GERAL: ${pOverallRank}º LUGAR (${pTotalPoints} PTS)  |  DIFERENÇA P/ O LÍDER: -${diffToLeader} PTS`, INTERNAL_WIDTH / 2, 178);
+      }
+
+      const blink = Math.floor(performance.now() / 400) % 2 === 0;
+      if (blink) {
+        ctx.fillStyle = '#FFD700';
+        ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9.5px monospace';
+        const hasNext = (this.seasonSchedule && this.seasonSchedule.length > 0 && this.seasonStage < this.seasonSchedule.length - 1);
+        let promptText = '';
+        if (hasNext) {
+          const nextTrack = TRACK_DEFINITIONS[this.seasonSchedule[this.seasonStage + 1]];
+          promptText = touchSafe ? `TOQUE / [3] — PRÓXIMA ETAPA (${nextTrack.name})` : `PRESSIONE [ENTER] PARA A PRÓXIMA ETAPA (${nextTrack.name})`;
+        } else {
+          promptText = touchSafe ? 'TOQUE / [3] — VER O GRANDE PÓDIO FINAL' : 'PRESSIONE [ENTER] PARA A CERIMÔNIA DO PÓDIO FINAL';
+        }
+        ctx.fillText(promptText, INTERNAL_WIDTH / 2, 196);
+      }
+      ctx.restore();
+    }
+
+    updateEndingFireworks(dt) {
+      if (this.endingRank !== 1) return;
+      if (!this.endingFireworks) this.endingFireworks = [];
+      if (Math.random() < 0.08) {
+        const colors = ['#FFD700', '#FF5252', '#00E5FF', '#76FF03', '#E040FB', '#FFAB00'];
+        const fx = 40 + Math.random() * (INTERNAL_WIDTH - 80);
+        const fy = 20 + Math.random() * 70;
+        const col = colors[Math.floor(Math.random() * colors.length)];
+        for (let i = 0; i < 24; i++) {
+          const angle = (i / 24) * Math.PI * 2;
+          const spd = 20 + Math.random() * 45;
+          this.endingFireworks.push({
+            x: fx, y: fy,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd,
+            color: col,
+            life: 1.0,
+            decay: 0.8 + Math.random() * 0.6
+          });
+        }
+      }
+      for (let i = this.endingFireworks.length - 1; i >= 0; i--) {
+        const p = this.endingFireworks[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 25 * dt;
+        p.life -= p.decay * dt;
+        if (p.life <= 0) {
+          this.endingFireworks.splice(i, 1);
+        }
+      }
+    }
+
+    renderEndingScene(ctx) {
+      const touchSafe = this.input.touchControlsVisible;
+      const rank = this.endingRank || 1;
+      const t = this.endingTimer || 0;
+
+      if (rank === 1) {
+        const bgGrad = ctx.createLinearGradient(0, 0, 0, INTERNAL_HEIGHT);
+        bgGrad.addColorStop(0, '#040510');
+        bgGrad.addColorStop(0.5, '#120A2A');
+        bgGrad.addColorStop(1, '#1A0C38');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+        for (let s = 0; s < 35; s++) {
+          const sx = (s * 47 + Math.sin(s * 3.1) * 30) % INTERNAL_WIDTH;
+          const sy = (s * 29 + Math.cos(s * 2.7) * 20) % 110;
+          const alpha = 0.3 + 0.7 * Math.sin(t * 3 + s);
+          ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0, alpha)})`;
+          ctx.fillRect(sx, sy, 1.5, 1.5);
+        }
+
+        if (this.endingFireworks) {
+          for (let i = 0; i < this.endingFireworks.length; i++) {
+            const p = this.endingFireworks[i];
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillRect(p.x, p.y, 2, 2);
+          }
+          ctx.globalAlpha = 1.0;
+        }
+
+        ctx.fillStyle = '#1A1E29';
+        ctx.fillRect(0, 145, INTERNAL_WIDTH, INTERNAL_HEIGHT - 145);
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(0, 145, INTERNAL_WIDTH, 2);
+        const dashOffset = (t * 80) % 40;
+        for (let dx = -dashOffset; dx < INTERNAL_WIDTH; dx += 40) {
+          ctx.fillRect(dx, 175, 22, 2);
+        }
+
+        this.renderConfetti(ctx);
+
+        const trophyX = INTERNAL_WIDTH / 2;
+        const trophyY = 62;
+        const glow = (Math.sin(t * 4) + 1) * 0.5;
+        const radG = ctx.createRadialGradient(trophyX, trophyY, 5, trophyX, trophyY, 48);
+        radG.addColorStop(0, `rgba(255, 215, 0, ${0.45 + glow * 0.3})`);
+        radG.addColorStop(1, 'rgba(255, 215, 0, 0)');
+        ctx.fillStyle = radG;
+        ctx.beginPath();
+        ctx.arc(trophyX, trophyY, 48, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.font = '34px monospace';
+        ctx.fillText('🏆', trophyX, trophyY + 12);
+
+        const carY = 162 + Math.sin(t * 12) * 1.0;
+        if (this.player && this.player.model) {
+          this.player.model.render(
+            ctx, trophyX, carY, 68, 42, false, 0, this.player.bodyColor,
+            { isNitro: true, wheelPhase: t * 15, isNight: true, speed: 120 }
+          );
+        }
+
+        ctx.fillStyle = '#FFD700';
+        ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
+        ctx.fillText('👑 O GRANDE CAMPEÃO DO LH44! 👑', INTERNAL_WIDTH / 2, 20);
+
+        ctx.fillStyle = '#00E5FF';
+        ctx.font = 'bold 7.5px monospace';
+        const pPts = this.championshipPoints[0] || 0;
+        ctx.fillText(`PILOTO: VOCÊ [${this.player?.driverCode || 'LEA'}]  |  TOTAL: ${pPts} PONTOS  |  CAMPEÃO DA TEMPORADA`, INTERNAL_WIDTH / 2, 32);
+
+        ctx.fillStyle = '#FFE082';
+        ctx.font = 'bold 7.2px monospace';
+        ctx.fillText('HISTÓRICO! VOCÊ CONQUISTOU A TEMPORADA COMPLETA DA FÓRMULA BRASIL!', INTERNAL_WIDTH / 2, 122);
+        ctx.fillStyle = '#69F0AE';
+        ctx.font = '6.8px monospace';
+        ctx.fillText('SEU NOME ESTÁ ETERNIZADO COMO UMA LENDA DO AUTOMOBILISMO ARCADE!', INTERNAL_WIDTH / 2, 134);
+        ctx.restore();
+
+      } else if (rank <= 3) {
+        const bgGrad = ctx.createLinearGradient(0, 0, 0, INTERNAL_HEIGHT);
+        bgGrad.addColorStop(0, '#050D1A');
+        bgGrad.addColorStop(0.6, '#0F1E36');
+        bgGrad.addColorStop(1, '#1A2942');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+        this.renderConfetti(ctx);
+
+        ctx.fillStyle = '#1E2530';
+        ctx.fillRect(0, 145, INTERNAL_WIDTH, INTERNAL_HEIGHT - 145);
+        ctx.fillStyle = '#00E5FF';
+        ctx.fillRect(0, 145, INTERNAL_WIDTH, 2);
+
+        const trophyX = INTERNAL_WIDTH / 2;
+        const trophyY = 62;
+        const medalEmoji = (rank === 2) ? '🥈' : '🥉';
+        const medalTitle = (rank === 2) ? '🥈 VICE-CAMPEÃO CONSAGRADO! 🥈' : '🥉 PÓDIO DE HONRA CONQUISTADO! 🥉';
+        const medalColor = (rank === 2) ? '#E2E8F0' : '#DDB892';
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.font = '34px monospace';
+        ctx.fillText(medalEmoji, trophyX, trophyY + 12);
+
+        const carY = 162 + Math.sin(t * 10) * 1.0;
+        if (this.player && this.player.model) {
+          this.player.model.render(
+            ctx, trophyX, carY, 64, 40, false, 0, this.player.bodyColor,
+            { isNitro: false, wheelPhase: t * 10, isNight: false, speed: 80 }
+          );
+        }
+
+        ctx.fillStyle = medalColor;
+        ctx.font = touchSafe ? 'bold 11px monospace' : 'bold 13px monospace';
+        ctx.fillText(medalTitle, INTERNAL_WIDTH / 2, 20);
+
+        ctx.fillStyle = '#00E5FF';
+        ctx.font = 'bold 7.5px monospace';
+        const pPts = this.championshipPoints[0] || 0;
+        ctx.fillText(`PILOTO: VOCÊ [${this.player?.driverCode || 'LEA'}]  |  TOTAL: ${pPts} PONTOS  |  ${rank}º LUGAR GERAL`, INTERNAL_WIDTH / 2, 32);
+
+        ctx.fillStyle = '#ECEFF1';
+        ctx.font = 'bold 7.5px monospace';
+        ctx.fillText('UMA TEMPORADA BRILHANTE E INESQUECÍVEL!', INTERNAL_WIDTH / 2, 122);
+        ctx.fillStyle = '#69F0AE';
+        ctx.font = '6.8px monospace';
+        ctx.fillText('VOCÊ SUPEROU ADVERSÁRIOS FEROZES E SUBIU NO PÓDIO FINAL DO BRASIL!', INTERNAL_WIDTH / 2, 134);
+        ctx.restore();
+
+      } else {
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, 130);
+        skyGrad.addColorStop(0, '#1A0E2E');
+        skyGrad.addColorStop(0.35, '#5C1D4E');
+        skyGrad.addColorStop(0.7, '#D4483B');
+        skyGrad.addColorStop(0.95, '#F5A623');
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, INTERNAL_WIDTH, 130);
+
+        const sunX = INTERNAL_WIDTH / 2;
+        const sunY = 118;
+        const sunGrad = ctx.createRadialGradient(sunX, sunY, 6, sunX, sunY, 38);
+        sunGrad.addColorStop(0, '#FFF9C4');
+        sunGrad.addColorStop(0.4, '#FFE082');
+        sunGrad.addColorStop(0.8, '#FF8A65');
+        sunGrad.addColorStop(1, 'rgba(255, 138, 101, 0)');
+        ctx.fillStyle = sunGrad;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 38, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#261226';
+        ctx.beginPath();
+        ctx.moveTo(0, 130);
+        ctx.lineTo(40, 105);
+        ctx.lineTo(90, 120);
+        ctx.lineTo(150, 98);
+        ctx.lineTo(210, 122);
+        ctx.lineTo(280, 102);
+        ctx.lineTo(340, 118);
+        ctx.lineTo(INTERNAL_WIDTH, 108);
+        ctx.lineTo(INTERNAL_WIDTH, 130);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#151821';
+        ctx.beginPath();
+        ctx.moveTo(sunX - 12, 130);
+        ctx.lineTo(sunX + 12, 130);
+        ctx.lineTo(INTERNAL_WIDTH + 60, INTERNAL_HEIGHT);
+        ctx.lineTo(-60, INTERNAL_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
+
+        const roadAnim = (t * 50) % 25;
+        ctx.strokeStyle = '#FFD54F';
+        ctx.lineWidth = 2;
+        for (let dy = 132 + roadAnim; dy < INTERNAL_HEIGHT; dy += 22) {
+          ctx.beginPath();
+          ctx.moveTo(sunX, dy);
+          ctx.lineTo(sunX, dy + 8);
+          ctx.stroke();
+        }
+
+        const carY = 176 + Math.sin(t * 8) * 0.8;
+        if (this.player && this.player.model) {
+          this.player.model.render(
+            ctx, sunX, carY, 56, 36, false, 0, this.player.bodyColor,
+            { isNitro: false, wheelPhase: t * 8, isNight: false, speed: 60 }
+          );
+        }
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#FFE082';
+        ctx.font = touchSafe ? 'bold 10.5px monospace' : 'bold 12px monospace';
+        ctx.fillText('🌅 NUNCA DESISTA DOS SEUS SONHOS! 🌅', INTERNAL_WIDTH / 2, 19);
+
+        ctx.fillStyle = '#00E5FF';
+        ctx.font = 'bold 7.2px monospace';
+        const pPts = this.championshipPoints[0] || 0;
+        ctx.fillText(`TEMPORADA CONCLUÍDA EM ${rank}º LUGAR COM ${pPts} PONTOS`, INTERNAL_WIDTH / 2, 31);
+
+        ctx.fillStyle = '#FFF3E0';
+        ctx.font = 'bold 7.2px monospace';
+        ctx.fillText('"AS GRANDES LENDAS SÃO FORJADAS NA PERSISTÊNCIA."', INTERNAL_WIDTH / 2, 48);
+        ctx.fillStyle = '#FFE082';
+        ctx.font = '6.8px monospace';
+        ctx.fillText('Você completou todas as 31 etapas com garra e bravura!', INTERNAL_WIDTH / 2, 59);
+        ctx.fillStyle = '#69F0AE';
+        ctx.font = '6.8px monospace';
+        ctx.fillText('Ajuste seu carro, treine as curvas e volte para conquistar o campeonato!', INTERNAL_WIDTH / 2, 70);
+        ctx.restore();
+      }
+
+      const blink = Math.floor(performance.now() / 420) % 2 === 0;
+      if (blink) {
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#FFD700';
+        ctx.font = touchSafe ? 'bold 8px monospace' : 'bold 9.5px monospace';
+        const exitMsg = touchSafe ? 'TOQUE / [3] — VOLTAR AO MENU' : 'PRESSIONE [ENTER] PARA VOLTAR AO MENU';
+        ctx.fillText(exitMsg, INTERNAL_WIDTH / 2, 206);
+        ctx.restore();
+      }
     }
 
     gameLoop(now) {
