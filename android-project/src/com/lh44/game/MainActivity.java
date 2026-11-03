@@ -41,8 +41,8 @@ public class MainActivity extends Activity {
         ));
         webView.setBackgroundColor(0xFF000000);
 
-        // Habilita aceleração gráfica de hardware
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // Performance Otimizada: Desativa camada off-screen intermediária para desenhar direto na janela com aceleração da GPU
+        webView.setLayerType(View.LAYER_TYPE_NONE, null);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -59,6 +59,12 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Flags para maximizar taxa de quadros e estabilidade de vsync
+        settings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            settings.setEnableSmoothTransition(true);
+        }
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

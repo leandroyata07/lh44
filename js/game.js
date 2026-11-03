@@ -143,11 +143,70 @@
       this.fps = 60;
       this.fpsFrames = 0;
       this.fpsLastTime = performance.now();
+      this.lastRenderTime = performance.now();
+
+      // Limite de FPS: 60 FPS cravados vs Aberto (taxa nativa da tela como 120Hz)
+      this.fpsLimit = 60;
+      try {
+        const savedLimit = localStorage.getItem('lh44_fps_limit');
+        if (savedLimit === 'open') {
+          this.fpsLimit = 0;
+        } else if (savedLimit === '60') {
+          this.fpsLimit = 60;
+        } else {
+          this.fpsLimit = 60;
+        }
+      } catch (_) {}
+
+      const fpsLimitBtn = document.getElementById('fps-limit-btn');
+      if (fpsLimitBtn) {
+        const updateFpsLimitBtn = () => {
+          fpsLimitBtn.textContent = (this.fpsLimit === 60) ? 'TRAVA: 60 FPS' : 'TRAVA: ABERTO';
+          fpsLimitBtn.style.color = (this.fpsLimit === 60) ? '#00E5FF' : '#FFD700';
+          fpsLimitBtn.style.borderColor = (this.fpsLimit === 60) ? '#00B4D8' : '#FFA000';
+        };
+        updateFpsLimitBtn();
+        const toggleFpsLimit = (e) => {
+          e.stopPropagation();
+          this.fpsLimit = (this.fpsLimit === 60) ? 0 : 60;
+          try { localStorage.setItem('lh44_fps_limit', this.fpsLimit === 60 ? '60' : 'open'); } catch (_) {}
+          updateFpsLimitBtn();
+          fpsLimitBtn.blur();
+        };
+        fpsLimitBtn.addEventListener('click', toggleFpsLimit);
+        fpsLimitBtn.addEventListener('touchstart', (e) => { e.preventDefault(); toggleFpsLimit(e); }, { passive: false });
+      }
+
+      // Sincronização Vertical (VSync)
+      this.vsyncEnabled = true;
+      try {
+        const savedVsync = localStorage.getItem('lh44_vsync');
+        if (savedVsync === 'false') this.vsyncEnabled = false;
+      } catch (_) {}
+
+      const vsyncBtn = document.getElementById('vsync-btn');
+      if (vsyncBtn) {
+        const updateVsyncBtn = () => {
+          vsyncBtn.textContent = this.vsyncEnabled ? 'VSYNC: LIGADO' : 'VSYNC: DESLIGADO';
+          vsyncBtn.style.color = this.vsyncEnabled ? '#69F0AE' : '#FF5252';
+          vsyncBtn.style.borderColor = this.vsyncEnabled ? '#00E676' : '#D32F2F';
+        };
+        updateVsyncBtn();
+        const toggleVsync = (e) => {
+          e.stopPropagation();
+          this.vsyncEnabled = !this.vsyncEnabled;
+          try { localStorage.setItem('lh44_vsync', this.vsyncEnabled ? 'true' : 'false'); } catch (_) {}
+          updateVsyncBtn();
+          vsyncBtn.blur();
+        };
+        vsyncBtn.addEventListener('click', toggleVsync);
+        vsyncBtn.addEventListener('touchstart', (e) => { e.preventDefault(); toggleVsync(e); }, { passive: false });
+      }
 
       const fpsBtn = document.getElementById('fps-toggle-btn');
       if (fpsBtn) {
         const updateFpsBtn = () => {
-          fpsBtn.textContent = this.showFPS ? 'FPS: ON' : 'FPS: OFF';
+          fpsBtn.textContent = this.showFPS ? 'HUD FPS: ON' : 'HUD FPS: OFF';
           fpsBtn.style.color = this.showFPS ? '#69F0AE' : '#90A4AE';
           fpsBtn.style.borderColor = this.showFPS ? '#00E676' : '#546E7A';
         };
@@ -216,7 +275,7 @@
       window.addEventListener('keydown', onFirstUserGesture, { passive: true });
       window.addEventListener('touchstart', onFirstUserGesture, { passive: true });
       window.addEventListener('click', onFirstUserGesture, { passive: true });
-      requestAnimationFrame(this.boundGameLoop);
+      this.scheduleNextFrame();
     }
 
     confirmName() {
@@ -4002,6 +4061,7 @@
       const size = 95 * scale * (REF_WIDTH / 2);
 
       if (size < 3) return;
+      if (sX < -size * 1.5 || sX > INTERNAL_WIDTH + size * 1.5) return;
 
       // Estado do clima e iluminação do circuito
       const E = this.envCur;
@@ -7826,29 +7886,62 @@
       }
     }
 
+    scheduleNextFrame() {
+      if (this._rafHandle) {
+        cancelAnimationFrame(this._rafHandle);
+        this._rafHandle = null;
+      }
+      if (this._timeoutHandle) {
+        clearTimeout(this._timeoutHandle);
+        this._timeoutHandle = null;
+      }
+      if (this.vsyncEnabled) {
+        this._rafHandle = requestAnimationFrame(this.boundGameLoop);
+      } else if (this.fpsLimit === 60) {
+        const elapsed = performance.now() - this.lastRenderTime;
+        const remain = Math.max(0, Math.floor((1000 / 60) - elapsed));
+        this._timeoutHandle = setTimeout(this.boundGameLoop, remain);
+      } else {
+        this._timeoutHandle = setTimeout(this.boundGameLoop, 0);
+      }
+    }
+
     gameLoop(now) {
       try {
+        if (!now) now = performance.now();
+
+        // Limite de taxa de quadros (Ex: 60 FPS cravados em telas de 90Hz, 120Hz ou monitores rápidos)
+        if (this.fpsLimit === 60) {
+          const targetInterval = 1000 / 60; // 16.666ms
+          const elapsed = now - this.lastRenderTime;
+          // Margem de tolerância de 2.5ms para sincronia estável com ciclos de 120Hz/60Hz
+          if (elapsed < targetInterval - 2.5) {
+            return; // O bloco finally executará e agendará o próximo quadro de forma única e segura
+          }
+        }
+
         let frameTime = (now - this.lastTime) / 1000;
         if (frameTime > 0.067) frameTime = 0.067;
         if (frameTime < 0) frameTime = 0;
         this.lastTime = now;
+        this.lastRenderTime = now;
 
         // Amostragem contínua de FPS com média móvel
         this.fpsFrames++;
-        if (now - this.fpsLastTime >= 250) {
+        if (now - this.fpsLastTime >= 350) {
           this.fps = (this.fpsFrames * 1000) / (now - this.fpsLastTime);
           this.fpsFrames = 0;
           this.fpsLastTime = now;
         }
 
-        this.accumulator = Math.min(this.accumulator + frameTime, this.fixedStep * 2.5);
+        this.accumulator = Math.min(this.accumulator + frameTime, this.fixedStep * 1.8);
         let steps = 0;
-        while (this.accumulator >= this.fixedStep && steps < 3) {
+        while (this.accumulator >= this.fixedStep && steps < 2) {
           this.update(this.fixedStep);
           this.accumulator -= this.fixedStep;
           steps++;
         }
-        if (steps >= 3) {
+        if (steps >= 2) {
           this.accumulator = 0;
         }
 
@@ -7856,7 +7949,7 @@
       } catch (err) {
         console.error('LH44 GameLoop error:', err);
       } finally {
-        requestAnimationFrame(this.boundGameLoop);
+        this.scheduleNextFrame();
       }
     }
   }
