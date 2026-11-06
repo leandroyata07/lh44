@@ -9,6 +9,10 @@
         dpadDown: false,
         dpadLeft: false,
         dpadRight: false,
+        btnY: false,     // Nitro (Y - Amarelo)
+        btnX: false,     // Freio (X - Vermelho)
+        btnB: false,     // HUD F1 (B - Azul/Ciano)
+        btnA: false,     // Acelera (A - Verde)
         btn1Nitro: false,
         btn2Brake: false,
         btn3Gas: false
@@ -213,14 +217,14 @@
 
       // Resposta gradual analógica de acelerador (R2) e freio (L2)
       let gasPressure = this.gpThrottlePressure || 0;
-      if (this.keys.up || this.touch.btn3Gas) {
+      if (this.keys.up || this.touch.btnA || this.touch.btn3Gas) {
         gasPressure = Math.max(gasPressure, 1.0);
       }
       this.throttlePressure = gasPressure;
       this.up = gasPressure > 0.08;
 
       let brkPressure = this.gpBrakePressure || 0;
-      if (this.keys.down || this.touch.btn2Brake) {
+      if (this.keys.down || this.touch.btnX || this.touch.btn2Brake) {
         brkPressure = Math.max(brkPressure, 1.0);
       }
       this.brakePressure = brkPressure;
@@ -228,10 +232,10 @@
 
       this.left = this.keys.left || this.touch.dpadLeft || !!this.gpActiveLeft;
       this.right = this.keys.right || this.touch.dpadRight || !!this.gpActiveRight;
-      this.nitro = this.keys.nitro || this.touch.btn1Nitro || !!this.gpActiveNitro;
+      this.nitro = this.keys.nitro || this.touch.btnY || this.touch.btn1Nitro || !!this.gpActiveNitro;
 
       const prevLeaderboard = this.leaderboard;
-      this.leaderboard = !!(this.keys.leaderboard || this.gpLeaderboard);
+      this.leaderboard = !!(this.keys.leaderboard || this.touch.btnB || this.gpLeaderboard);
       if (this.leaderboard && !prevLeaderboard) this.justPressedLeaderboard = true;
 
       // Navegação por teclado / touch
@@ -464,6 +468,8 @@
           case 'C':
             this.justPressedColor = true;
             break;
+          case 'b':
+          case 'B':
           case 'x':
           case 'X':
           case 'Tab':
@@ -580,6 +586,8 @@
           case 'M':
             this.keyM = false;
             break;
+          case 'b':
+          case 'B':
           case 'x':
           case 'X':
           case 'Tab':
@@ -923,21 +931,39 @@
       };
 
       const evalSteerPoint = (clientX, clientY) => {
-        if (!dpadCluster) return { l: false, r: false };
+        if (!armLeft || !armRight) return { l: false, r: false };
         const pt = this.toViewportLocal(clientX, clientY);
-        const rect = this.getElementLocalRect(dpadCluster);
-        const pad = Math.max(12, rect.w * 0.22);
-        if (pt.x < rect.x - pad || pt.x > rect.x + rect.w + pad ||
-            pt.y < rect.y - pad || pt.y > rect.y + rect.h + pad) {
+        const rectL = this.getElementLocalRect(armLeft);
+        const rectR = this.getElementLocalRect(armRight);
+
+        // Limites verticais confortáveis para o polegar
+        const vPad = Math.max(16, rectL.h * 0.35);
+        const minY = Math.min(rectL.y, rectR.y) - vPad;
+        const maxY = Math.max(rectL.y + rectL.h, rectR.y + rectR.h) + vPad;
+        if (pt.y < minY || pt.y > maxY) {
           return { l: false, r: false };
         }
 
-        const midX = rect.x + rect.w * 0.5;
-        const deadzone = rect.w * 0.05;
-        return {
-          l: pt.x < midX - deadzone,
-          r: pt.x > midX + deadzone
-        };
+        // Extensão lateral externa
+        const hPadOuter = Math.max(16, rectL.w * 0.35);
+        if (pt.x < rectL.x - hPadOuter || pt.x > rectR.x + rectR.w + hPadOuter) {
+          return { l: false, r: false };
+        }
+
+        // Ponto divisor no centro do vão entre os botões Esquerda e Direita
+        const gapMidX = (rectL.x + rectL.w + rectR.x) * 0.5;
+        // Zona neutra segura (deadzone) no vão divisor para impedir ativação cruzada acidental
+        const deadzone = 4.0;
+
+        const centerLX = rectL.x + rectL.w * 0.5;
+        const centerRX = rectR.x + rectR.w * 0.5;
+        const distL = Math.abs(pt.x - centerLX);
+        const distR = Math.abs(pt.x - centerRX);
+
+        const isLeft = (pt.x < gapMidX - deadzone) && (distL < distR);
+        const isRight = (pt.x > gapMidX + deadzone) && (distR < distL);
+
+        return { l: isLeft, r: isRight };
       };
 
       if (dpadCluster) {
@@ -982,54 +1008,108 @@
       }
 
       // =====================================================
-      // 2. BOTÕES 1 (NITRO), 2 (FREIA), 3 (ACELERA) MULTITOUCH
+      // 2. BOTÕES XBOX DIAMOND (Y: NITRO, X: FREIO, B: HUD F1, A: ACELERA) MULTITOUCH
       // =====================================================
       const btnsCluster = document.getElementById('buttons-cluster');
-      const btn1El = document.getElementById('btn-1');
-      const btn2El = document.getElementById('btn-2');
-      const btn3El = document.getElementById('btn-3');
+      const btnYEl = document.getElementById('btn-y');
+      const btnXEl = document.getElementById('btn-x');
+      const btnBEl = document.getElementById('btn-b');
+      const btnAEl = document.getElementById('btn-a');
 
-      const applyBtnsState = (b1, b2, b3, vibrateOnNew = false) => {
-        const newB1 = b1 && !this.touch.btn1Nitro;
-        const newB2 = b2 && !this.touch.btn2Brake;
-        const newB3 = b3 && !this.touch.btn3Gas;
+      const applyBtnsState = (by, bx, bb, ba, vibrateOnNew = false) => {
+        const newY = by && !this.touch.btnY;
+        const newX = bx && !this.touch.btnX;
+        const newB = bb && !this.touch.btnB;
+        const newA = ba && !this.touch.btnA;
 
-        // Botão 3 (Acelera) e Botão 1 confirmam menus; Botão 2 (Freia) volta nas telas de menu
-        if (newB3 || newB1) {
+        // Botão A (Acelera) confirma menus
+        if (newA) {
           this.justPressedEnter = true;
         }
-        if (newB2) {
-          this.justPressedEsc = true;
+
+        // Botão B alterna HUD F1 durante corrida / volta e cancela nos menus e pausa
+        if (newB) {
+          if (window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED' || window.game.state === 'RESUME_COUNTDOWN')) {
+            window.game.f1LeaderboardToggled = !window.game.f1LeaderboardToggled;
+            if (window.game.audio) window.game.audio.playBeep(520, 0.05);
+          } else if (window.game && window.game.state === 'PAUSED') {
+            window.game.handlePauseBackKey();
+          } else {
+            this.justPressedEsc = true;
+          }
         }
 
-        this.touch.btn1Nitro = b1;
-        this.touch.btn2Brake = b2;
-        this.touch.btn3Gas = b3;
+        // Botão X (Freio) pode voltar em menus fora da corrida
+        if (newX) {
+          if (window.game && window.game.state !== 'RACING' && window.game.state !== 'COUNTDOWN' && window.game.state !== 'RESUME_COUNTDOWN') {
+            if (window.game.state === 'PAUSED') {
+              window.game.handlePauseBackKey();
+            } else {
+              this.justPressedEsc = true;
+            }
+          }
+        }
 
-        if (btn1El) btn1El.classList.toggle('active', b1);
-        if (btn2El) btn2El.classList.toggle('active', b2);
-        if (btn3El) btn3El.classList.toggle('active', b3);
+        this.touch.btnY = by;
+        this.touch.btnX = bx;
+        this.touch.btnB = bb;
+        this.touch.btnA = ba;
+        this.touch.btn1Nitro = by;
+        this.touch.btn2Brake = bx;
+        this.touch.btn3Gas = ba;
+
+        if (btnYEl) btnYEl.classList.toggle('active', by);
+        if (btnXEl) btnXEl.classList.toggle('active', bx);
+        if (btnAEl) btnAEl.classList.toggle('active', ba);
+        if (btnBEl) {
+          const isF1Active = bb || (window.game && window.game.f1LeaderboardToggled);
+          btnBEl.classList.toggle('active', !!isF1Active);
+        }
 
         this.syncCombinedInputs();
-        if (vibrateOnNew && (newB1 || newB2 || newB3) && navigator.vibrate) {
-          navigator.vibrate(newB1 ? 22 : 12);
+        if (vibrateOnNew && (newY || newX || newB || newA) && navigator.vibrate) {
+          navigator.vibrate(newY ? 22 : 12);
         }
       };
 
-      const hitTestButtons = (clientX, clientY) => {
+      const hitTestSingleTouch = (clientX, clientY) => {
         const pt = this.toViewportLocal(clientX, clientY);
-        const checkBtn = (el) => {
-          if (!el) return false;
+
+        const getCenter = (el) => {
+          if (!el) return null;
           const r = this.getElementLocalRect(el);
-          const cx = r.x + r.w * 0.5;
-          const cy = r.y + r.h * 0.5;
-          const radius = Math.max(r.w, r.h) * 0.58; // margem ergonômica generosa para o polegar
-          return Math.hypot(pt.x - cx, pt.y - cy) <= radius;
+          return { cx: r.x + r.w * 0.5, cy: r.y + r.h * 0.5, size: Math.max(r.w, r.h) };
         };
+
+        const cy = getCenter(btnYEl);
+        const cx = getCenter(btnXEl);
+        const cb = getCenter(btnBEl);
+        const ca = getCenter(btnAEl);
+
+        let bestBtn = null;
+        let bestDist = Infinity;
+
+        // Voronoi: Atribui o toque EXCLUSIVAMENTE ao botão mais próximo, eliminando ativação dupla por um mesmo dedo!
+        const checkCandidate = (c, btnId) => {
+          if (!c) return;
+          const d = Math.hypot(pt.x - c.cx, pt.y - c.cy);
+          const maxReach = c.size * 0.75;
+          if (d <= maxReach && d < bestDist) {
+            bestDist = d;
+            bestBtn = btnId;
+          }
+        };
+
+        checkCandidate(cy, 'Y');
+        checkCandidate(cx, 'X');
+        checkCandidate(cb, 'B');
+        checkCandidate(ca, 'A');
+
         return {
-          b1: checkBtn(btn1El),
-          b2: checkBtn(btn2El),
-          b3: checkBtn(btn3El)
+          by: bestBtn === 'Y',
+          bx: bestBtn === 'X',
+          bb: bestBtn === 'B',
+          ba: bestBtn === 'A'
         };
       };
 
@@ -1039,16 +1119,16 @@
           e.stopPropagation();
           if (isStart) this.notifyGesture(true);
 
-          // Inspeciona todos os toques ativos na região direita (suporta segurar 3 e tocar 1 juntos!)
-          let b1 = false, b2 = false, b3 = false;
+          let by = false, bx = false, bb = false, ba = false;
           for (let i = 0; i < e.touches.length; i++) {
             const t = e.touches[i];
-            const hit = hitTestButtons(t.clientX, t.clientY);
-            b1 = b1 || hit.b1;
-            b2 = b2 || hit.b2;
-            b3 = b3 || hit.b3;
+            const hit = hitTestSingleTouch(t.clientX, t.clientY);
+            by = by || hit.by;
+            bx = bx || hit.bx;
+            bb = bb || hit.bb;
+            ba = ba || hit.ba;
           }
-          applyBtnsState(b1, b2, b3, true);
+          applyBtnsState(by, bx, bb, ba, true);
         };
 
         btnsCluster.addEventListener('touchstart', (e) => updateBtnsFromTouches(e, true), { passive: false });
@@ -1062,18 +1142,18 @@
           e.stopPropagation();
           mouseBtnDown = true;
           this.notifyGesture(false);
-          const hit = hitTestButtons(e.clientX, e.clientY);
-          applyBtnsState(hit.b1, hit.b2, hit.b3, false);
+          const hit = hitTestSingleTouch(e.clientX, e.clientY);
+          applyBtnsState(hit.by, hit.bx, hit.bb, hit.ba, false);
         });
         window.addEventListener('mousemove', (e) => {
           if (!mouseBtnDown) return;
-          const hit = hitTestButtons(e.clientX, e.clientY);
-          applyBtnsState(hit.b1, hit.b2, hit.b3, false);
+          const hit = hitTestSingleTouch(e.clientX, e.clientY);
+          applyBtnsState(hit.by, hit.bx, hit.bb, hit.ba, false);
         });
         window.addEventListener('mouseup', () => {
           if (!mouseBtnDown) return;
           mouseBtnDown = false;
-          applyBtnsState(false, false, false, false);
+          applyBtnsState(false, false, false, false, false);
         });
       }
     }
@@ -1157,16 +1237,6 @@
         return Math.max(0, Math.min(1, v));
       };
 
-      // R2 (Gatilho Direito / RT / btn 7) = ACELERADOR gradual conforme a pressão
-      const r2Pressure = getTriggerVal(7, 5);
-      this.gpThrottlePressure = r2Pressure;
-      this.gpActiveGas = r2Pressure > 0.08;
-
-      // L2 (Gatilho Esquerdo / LT / btn 6) = FREIO gradual conforme a pressão
-      const l2Pressure = getTriggerVal(6, 2);
-      this.gpBrakePressure = l2Pressure;
-      this.gpActiveBrake = l2Pressure > 0.08;
-
       // D-Pad Digital (Botões 12, 13, 14, 15 ou Hat Switches)
       const hatX = (gp.axes && gp.axes.length > 4) ? gp.axes[4] : ((gp.axes && gp.axes.length > 6) ? gp.axes[6] : 0);
       const hatY = (gp.axes && gp.axes.length > 5) ? gp.axes[5] : ((gp.axes && gp.axes.length > 7) ? gp.axes[7] : 0);
@@ -1190,9 +1260,21 @@
       const btnSelect = isBtnPressed(8);
       const btnStart = isBtnPressed(9);
 
-      // Nitro é o botão A (com suporte também a RB e Y)
-      this.gpActiveNitro = btnA || btnRB || btnY;
-      // Botão X dedicado para exibir/ocultar a classificação F1 (toggle)
+      // Padrão Xbox Solicitado:
+      // A (Verde) = ACELERA (suporta gatilho RT ou botão A)
+      const r2Pressure = getTriggerVal(7, 5);
+      this.gpThrottlePressure = btnA ? 1.0 : r2Pressure;
+      this.gpActiveGas = (r2Pressure > 0.08) || btnA;
+
+      // X (Vermelho) = FREIO (suporta gatilho LT ou botão X)
+      const l2Pressure = getTriggerVal(6, 2);
+      this.gpBrakePressure = btnX ? 1.0 : l2Pressure;
+      this.gpActiveBrake = (l2Pressure > 0.08) || btnX;
+
+      // Y (Amarelo) = NITRO (botão Y ou botões RB/LB)
+      this.gpActiveNitro = btnY || btnRB || btnLB;
+
+      // B (Azul F1) = HUD F1
       this.gpLeaderboard = false;
 
       // 2. Analógico Direito (Right Stick) — SOMENTE para navegar nos menus/opções
@@ -1227,21 +1309,25 @@
         }
       }
 
-      // Botão A = Nitro na corrida e Confirmação/Seleção nos Menus
+      // Botão A = Confirmação nos Menus (se correndo, acelera diretamente)
       if (checkPulse('btnA', btnA)) {
-        this.justPressedNitro = true;
         this.justPressedEnter = true;
       }
+
+      // Botão B = Alterna Classificação F1 na corrida / Voltar e Cancelar nos Menus
       if (checkPulse('btnB', btnB)) {
-        if (window.game && window.game.state === 'PAUSED') {
+        if (window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED' || window.game.state === 'RESUME_COUNTDOWN')) {
+          this.justPressedLeaderboard = true;
+          window.game.f1LeaderboardToggled = !window.game.f1LeaderboardToggled;
+          if (window.game.audio) window.game.audio.playBeep(520, 0.05);
+        } else if (window.game && window.game.state === 'PAUSED') {
           window.game.handlePauseBackKey();
         } else {
           this.justPressedEsc = true;
         }
       }
-      if (checkPulse('btnX', btnX)) {
-        this.justPressedLeaderboard = true;
-      }
+
+      // Botão Y / RB = Dispara Nitro
       if (checkPulse('btnRB', btnRB) || checkPulse('btnY', btnY)) {
         this.justPressedNitro = true;
       }

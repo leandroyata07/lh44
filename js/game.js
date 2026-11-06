@@ -990,6 +990,15 @@
         this.pauseBtn.classList.toggle('active', isPaused);
       }
 
+      const btnB = document.getElementById('btn-b');
+      if (btnB) {
+        const isRacingState = (this.state === 'RACING' || this.state === 'COUNTDOWN' || this.state === 'PAUSED' || this.state === 'RESUME_COUNTDOWN');
+        if (isRacingState) {
+          const isF1Active = !!(this.f1LeaderboardToggled || (this.input && this.input.leaderboard));
+          btnB.classList.toggle('active', isF1Active);
+        }
+      }
+
       if (this.state === 'MENU') {
         if (this.nameWrapper) this.nameWrapper.classList.remove('show');
         this.audio.silenceEffects();
@@ -7405,7 +7414,7 @@
       ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
       ctx.fillText(
         touchSafe
-          ? '◄ ► ▲ ▼ TROCA CARRO | TOQUE NO CARRO | [3]/[A] ESCOLHER COR | [2]/[B] VOLTAR'
+          ? '◄ ► ▲ ▼ TROCA CARRO | TOQUE NO CARRO | [A] ESCOLHER COR | [B] VOLTAR'
           : '◄ ► ▲ ▼ NAVEGA NOS 20 CARROS | CLIQUE NO CARRO | [A] / ENTER ESCOLHER COR | [B] VOLTAR',
         INTERNAL_WIDTH / 2,
         touchSafe ? 193 : 209
@@ -7576,7 +7585,7 @@
       ctx.font = touchSafe ? '6.0px monospace' : '7.2px monospace';
       ctx.fillText(
         touchSafe
-          ? '◄ ► TROCA COR | TOQUE NA COR | [3]/[A] CONFIRMAR | [2]/[B] VOLTAR'
+          ? '◄ ► TROCA COR | TOQUE NA COR | [A] CONFIRMAR | [B] VOLTAR'
           : '◄ ► ESCOLHE A COR | CLIQUE NA COR OU TECLAS [C]/[1-0] | [A] / ENTER CONFIRMAR | [B] VOLTAR',
         INTERNAL_WIDTH / 2,
         touchSafe ? 193 : 209
@@ -7703,7 +7712,7 @@
 
       ctx.fillStyle = '#90A4AE';
       ctx.font = touchSafe ? '6.3px monospace' : '7.5px monospace';
-      ctx.fillText(touchSafe ? '[3]/[A] CONFIRMAR | [2]/[B] VOLTAR | D-PAD/TOQUE NAVEGA' : '[ENTER]/[A] CONFIRMAR | [ESC]/[B] VOLTAR | D-PAD SELECIONA', INTERNAL_WIDTH / 2, L.hintY);
+      ctx.fillText(touchSafe ? '[A] CONFIRMAR | [B] VOLTAR | D-PAD/TOQUE NAVEGA' : '[ENTER]/[A] CONFIRMAR | [ESC]/[B] VOLTAR | D-PAD SELECIONA', INTERNAL_WIDTH / 2, L.hintY);
       ctx.restore();
     }
 

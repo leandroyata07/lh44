@@ -439,27 +439,27 @@
       border-color: #80f8ff;
     }
 
-    /* DIREITA INFERIOR: Botões 1, 2, 3 Estilo SNES */
+    /* DIREITA INFERIOR: Botões A, B, X, Y Padrão Xbox Diamond */
     #buttons-cluster {
       position: absolute;
-      right: max(10px, env(safe-area-inset-right, 10px));
-      bottom: max(8px, env(safe-area-inset-bottom, 8px));
-      width: clamp(118px, 30vmin, 146px);
-      height: clamp(106px, 27vmin, 132px);
-      border-radius: 56px;
-      background: radial-gradient(circle at 35% 30%, rgba(168, 175, 190, 0.20), rgba(22, 26, 36, 0.48));
-      border: 2px solid rgba(190, 200, 216, 0.35);
-      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.45);
+      right: max(8px, env(safe-area-inset-right, 8px));
+      bottom: max(6px, env(safe-area-inset-bottom, 6px));
+      width: clamp(126px, 32vmin, 156px);
+      height: clamp(126px, 32vmin, 156px);
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 50%, rgba(28, 35, 48, 0.52), rgba(12, 16, 24, 0.72));
+      border: 2px solid rgba(190, 200, 216, 0.32);
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.5);
       opacity: var(--btns-opacity);
       pointer-events: auto;
       touch-action: none;
       transform-origin: bottom right;
       transform: scale(var(--controls-scale, 1.0));
     }
-    .snes-btn {
+    .xbox-btn {
       position: absolute;
-      width: clamp(44px, 11.2vmin, 54px);
-      height: clamp(44px, 11.2vmin, 54px);
+      width: clamp(38px, 9.8vmin, 47px);
+      height: clamp(38px, 9.8vmin, 47px);
       border-radius: 50%;
       display: flex;
       flex-direction: column;
@@ -467,64 +467,85 @@
       justify-content: center;
       border: 2px solid rgba(15, 18, 26, 0.9);
       color: #ffffff;
-      box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.35), 0 3px 7px rgba(0, 0, 0, 0.65);
+      box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.32), 0 3px 8px rgba(0, 0, 0, 0.65);
       touch-action: none;
       cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
     }
-    .snes-btn .btn-num {
+    .xbox-btn .btn-letter {
       font-size: clamp(15px, 3.8vmin, 18px);
       font-weight: 900;
       line-height: 1;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      font-family: 'Segoe UI', Impact, Arial, sans-serif;
     }
-    .snes-btn .btn-sub {
-      font-size: clamp(6.5px, 1.65vmin, 8px);
+    .xbox-btn .btn-sub {
+      font-size: clamp(5.8px, 1.45vmin, 7.2px);
       font-weight: 800;
       letter-spacing: 0.2px;
-      line-height: 1.05;
+      line-height: 1;
       margin-top: 1px;
       opacity: 0.95;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
     }
-    /* Botão 1: NITRO (Azul SNES X) — Topo Central */
-    #btn-1 {
-      left: 28%;
-      top: 6%;
-      background: radial-gradient(circle at 32% 28%, #29b6f6, #0b5394 78%);
-      border-color: #80f8ff;
+    /* Botão Y: NITRO (Amarelo / Dourado Turbo) — Topo */
+    #btn-y {
+      top: 3%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: radial-gradient(circle at 35% 30%, #f59e0b, #b45309 78%);
+      border-color: #fde047;
     }
-    #btn-1.active {
+    #btn-y.active {
+      background: #fbbf24;
+      color: #3b1802;
+      transform: translateX(-50%) scale(0.92);
+      box-shadow: 0 0 14px rgba(245, 158, 11, 0.95), inset 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+    /* Botão X: FREIO (Vermelho) — Esquerda */
+    #btn-x {
+      left: 3%;
+      top: 50%;
+      transform: translateY(-50%);
+      background: radial-gradient(circle at 35% 30%, #ef4444, #991b1b 78%);
+      border-color: #fca5a5;
+    }
+    #btn-x.active {
+      background: #dc2626;
+      color: #ffffff;
+      transform: translateY(-50%) scale(0.92);
+      box-shadow: 0 0 14px rgba(239, 68, 68, 0.95), inset 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+    /* Botão B: HUD F1 (Azul / Ciano F1) — Direita */
+    #btn-b {
+      right: 3%;
+      top: 50%;
+      transform: translateY(-50%);
+      background: radial-gradient(circle at 35% 30%, #0284c7, #075985 78%);
+      border-color: #38bdf8;
+    }
+    #btn-b.active {
       background: #00e5ff;
-      color: #031520;
-      transform: scale(0.93);
-      box-shadow: 0 0 14px rgba(0, 229, 255, 0.9);
+      color: #042f2e;
+      transform: translateY(-50%) scale(0.92);
+      box-shadow: 0 0 14px rgba(0, 229, 255, 0.95), inset 0 2px 4px rgba(0, 0, 0, 0.4);
     }
-    /* Botão 2: FREIA (Vermelho SNES A/Y) — Inferior Esquerdo */
-    #btn-2 {
-      left: 7%;
-      bottom: 8%;
-      background: radial-gradient(circle at 32% 28%, #ef5350, #9a1b1b 78%);
-      border-color: #ff8a80;
+    /* Botão A: ACELERA (Verde) — Base (Destaque Ergonômico) */
+    #btn-a {
+      bottom: 3%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: clamp(40px, 10.3vmin, 49px);
+      height: clamp(40px, 10.3vmin, 49px);
+      background: radial-gradient(circle at 35% 30%, #22c55e, #15803d 78%);
+      border-color: #86efac;
     }
-    #btn-2.active {
-      background: #ff5252;
-      transform: scale(0.93);
-      box-shadow: 0 0 12px rgba(255, 82, 82, 0.85);
-    }
-    /* Botão 3: ACELERA (Verde SNES Y/B) — Inferior Direito (ergonômico principal) */
-    #btn-3 {
-      right: 7%;
-      bottom: 14%;
-      width: clamp(47px, 12vmin, 58px);
-      height: clamp(47px, 12vmin, 58px);
-      background: radial-gradient(circle at 32% 28%, #26de81, #117a43 78%);
-      border-color: #80ffba;
-    }
-    #btn-3.active {
-      background: #00e676;
-      color: #041d10;
-      transform: scale(0.93);
-      box-shadow: 0 0 14px rgba(0, 230, 118, 0.9);
+    #btn-a.active {
+      background: #16a34a;
+      color: #052e16;
+      transform: translateX(-50%) scale(0.92);
+      box-shadow: 0 0 14px rgba(34, 197, 94, 0.95), inset 0 2px 4px rgba(0, 0, 0, 0.4);
     }
     /* Campo de Nome do Piloto no Menu Principal */
     #player-name-wrapper {
