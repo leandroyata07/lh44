@@ -188,14 +188,15 @@
         if (isOpen) {
           panel.classList.remove('open');
           if (gearBtn) gearBtn.classList.remove('active');
+          if (window.game && window.game.state === 'PAUSED') {
+            window.game.triggerResumeCountdown();
+          }
         } else {
           panel.classList.add('open');
           if (gearBtn) gearBtn.classList.add('active');
           // Abrir configurações pausa a corrida de fato
           if (window.game && window.game.state === 'RACING') {
-            window.game.state = 'PAUSED';
-            if (window.game.audio) window.game.audio.silenceEffects();
-            if (window.game.audio) window.game.audio.playBeep(300, 0.1);
+            window.game.pauseGame();
           } else {
             this.justPressedEsc = true;
           }
@@ -765,12 +766,9 @@
         this.notifyGesture(false);
         if (window.game) {
           if (window.game.state === 'RACING') {
-            window.game.state = 'PAUSED';
-            if (window.game.audio) window.game.audio.silenceEffects();
-            if (window.game.audio) window.game.audio.playBeep(300, 0.1);
+            window.game.pauseGame();
           } else if (window.game.state === 'PAUSED') {
-            window.game.state = 'RACING';
-            if (window.game.audio) window.game.audio.playBeep(523, 0.1);
+            window.game.triggerResumeCountdown();
           } else {
             this.justPressedEsc = true;
           }
@@ -786,6 +784,9 @@
       bindTap(closeBtn, () => {
         if (panel) panel.classList.remove('open');
         if (gearBtn) gearBtn.classList.remove('active');
+        if (window.game && window.game.state === 'PAUSED') {
+          window.game.triggerResumeCountdown();
+        }
       });
 
       bindTap(resumeBtn, () => {
@@ -793,8 +794,7 @@
         if (panel) panel.classList.remove('open');
         if (gearBtn) gearBtn.classList.remove('active');
         if (window.game && window.game.state === 'PAUSED') {
-          window.game.state = 'RACING';
-          if (window.game.audio) window.game.audio.playBeep(523, 0.1);
+          window.game.triggerResumeCountdown();
         } else {
           this.justPressedEsc = true;
         }
@@ -1217,8 +1217,14 @@
 
       // Start = Pausa (pausa e despausa a corrida / confirma menus)
       if (checkPulse('btnStart', btnStart)) {
-        this.justPressedEsc = true;
-        this.justPressedEnter = true;
+        if (window.game && window.game.state === 'RACING') {
+          window.game.pauseGame();
+        } else if (window.game && window.game.state === 'PAUSED') {
+          window.game.handlePauseStartKey();
+        } else {
+          this.justPressedEsc = true;
+          this.justPressedEnter = true;
+        }
       }
 
       // Botão A = Nitro na corrida e Confirmação/Seleção nos Menus
@@ -1227,7 +1233,11 @@
         this.justPressedEnter = true;
       }
       if (checkPulse('btnB', btnB)) {
-        this.justPressedEsc = true;
+        if (window.game && window.game.state === 'PAUSED') {
+          window.game.handlePauseBackKey();
+        } else {
+          this.justPressedEsc = true;
+        }
       }
       if (checkPulse('btnX', btnX)) {
         this.justPressedLeaderboard = true;

@@ -357,6 +357,11 @@
       background: #00e5ff;
       color: #001219;
     }
+    .panel-action-btn.off {
+      background: #3b1820;
+      border-color: #ef4444;
+      color: #fca5a5;
+    }
     .panel-action-resume {
       background: #047857;
       border-color: #10b981;

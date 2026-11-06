@@ -217,6 +217,13 @@ class AudioManager {
     this.titleAudio = null;
     this.titlePlaying = false;
     this.musicVolume = 0.50;
+    this.musicEnabled = true;
+    try {
+      const savedMusic = localStorage.getItem('lh44_music_enabled');
+      if (savedMusic !== null) {
+        this.musicEnabled = (savedMusic === 'true');
+      }
+    } catch (_) {}
   }
 
   get enabled() {
@@ -225,12 +232,47 @@ class AudioManager {
   set enabled(val) {
     this._enabled = !!val;
     if (this.titleAudio) {
-      this.titleAudio.volume = this._enabled ? this.musicVolume : 0;
+      this.titleAudio.volume = (this._enabled && this.musicEnabled) ? this.musicVolume : 0;
       if (!this._enabled) {
         try { this.titleAudio.pause(); } catch (_) {}
       }
     }
     this.syncMusicPlayback();
+  }
+
+  setMusicEnabled(val) {
+    this.musicEnabled = !!val;
+    try {
+      localStorage.setItem('lh44_music_enabled', this.musicEnabled ? 'true' : 'false');
+    } catch (_) {}
+    if (!this.musicEnabled) {
+      this.pauseAllFileMusic(false);
+      if (this.titleAudio) {
+        try { this.titleAudio.pause(); } catch (_) {}
+      }
+      if (this.musicBus && this.ctx) {
+        this.musicBus.gain.setValueAtTime(0, this.ctx.currentTime);
+      }
+    } else {
+      if (this.musicBus && this.ctx && this._enabled) {
+        this.musicBus.gain.setValueAtTime(0.38, this.ctx.currentTime);
+      }
+      this.syncMusicPlayback();
+    }
+  }
+
+  toggleMusic() {
+    this.setMusicEnabled(!this.musicEnabled);
+    return this.musicEnabled;
+  }
+
+  playCountdownBeep(isGo = false) {
+    if (!this._enabled) return;
+    if (isGo) {
+      this.playBeep(880, 0.22);
+    } else {
+      this.playBeep(440, 0.08);
+    }
   }
 
   unlockAudio(forceStartTitle = true) {
@@ -261,7 +303,7 @@ class AudioManager {
 
   playTitleMusic() {
     this.stopEndingMusic();
-    if (!this._enabled) return;
+    if (!this._enabled || !this.musicEnabled) return;
     if (this.titlePlaying) return;
     if (!this.ctx) this.init();
     if (this.ctx && this.ctx.state === 'suspended') {
@@ -293,7 +335,7 @@ class AudioManager {
   playEndingMusic(isTop3 = true) {
     this.stopTitleMusic();
     this.musicPlaying = false;
-    if (!this._enabled) return;
+    if (!this._enabled || !this.musicEnabled) return;
     this.endingPlaying = true;
     this.endingSongType = isTop3 ? 'victory' : 'motivational';
     this.step = 0;
@@ -381,7 +423,7 @@ class AudioManager {
 
   syncMusicPlayback() {
     const song = SONGS[this.songIndex];
-    if (!this._enabled || !this._musicPlaying) {
+    if (!this._enabled || !this._musicPlaying || !this.musicEnabled) {
       this.pauseAllFileMusic(false);
       return;
     }
@@ -401,7 +443,7 @@ class AudioManager {
       }
       if (curAudio) {
         curAudio.loop = true;
-        curAudio.volume = this._enabled ? this.musicVolume : 0;
+        curAudio.volume = (this._enabled && this.musicEnabled) ? this.musicVolume : 0;
         const p = curAudio.play();
         if (p && typeof p.catch === 'function') {
           p.catch(() => {});
@@ -843,7 +885,7 @@ class AudioManager {
   }
 
   musicScheduler() {
-    if (!this.ctx || !this.musicBus || this.ctx.state !== 'running') return;
+    if (!this.ctx || !this.musicBus || this.ctx.state !== 'running' || !this._enabled || !this.musicEnabled) return;
     const now = this.ctx.currentTime;
 
     // Música de Encerramento (Vitória/Pódio ou Motivacional)
