@@ -194,6 +194,168 @@ const SONGS = [
       [76,T,79,T, _,84,T,83, 79,T,76,T, 72,T,67,T],
       [74,T,78,T, _,81,T,78, 74,T,81,T, 86,T,85,T]
     ]
+  },
+  {
+    id: 'nitro',
+    name: 'NITRO OVERDRIVE',
+    type: 'synth',
+    desc: 'Eurobeat frenético: aceleração insana com pedal colado no fundo.',
+    bpm: 156, swing: 0,
+    lead: 'saw', bassType: 'rock',
+    roots: [45, 41, 48, 43, 45, 41, 43, 47],
+    chords: [
+      [57,60,64], [53,57,60], [60,64,67], [55,59,62],
+      [57,60,64], [53,57,60], [55,59,62], [59,62,65]
+    ],
+    pad: 0.04,
+    stab: '..x...x...x...x.', stabType: 'sawtooth', stabVol: 0.035,
+    bass: [0, 0, 12, 0, 0, 0, 12, 0, 0, 0, 12, 0, 0, 12, 0, 12],
+    drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '..x...x...x...x.' },
+    melody: [
+      [81,T,81,T, 84,T,86,T, 88,T,86,T, 84,T,81,T],
+      [84,T,81,T, 77,T,81,T, 84,T,T,T,  86,T,84,T],
+      [84,T,86,T, 88,T,91,T, 93,T,91,T, 88,T,84,T],
+      [86,T,84,T, 83,T,84,T, 86,T,T,T,  88,T,86,T],
+      [88,T,86,T, 84,T,81,T, 84,T,88,T, 91,T,88,T],
+      [89,T,88,T, 86,T,84,T, 81,T,84,T, 86,T,89,T],
+      [91,T,89,T, 88,T,86,T, 88,T,91,T, 93,T,91,T],
+      [93,T,91,T, 88,T,86,T, 83,T,86,T, 88,T,T,T]
+    ]
+  },
+  {
+    id: 'neon',
+    name: 'NEON CIRCUIT',
+    type: 'synth',
+    desc: 'Synthwave noturno: corrida urbana veloz entre arranha-céus iluminados.',
+    bpm: 152, swing: 0,
+    lead: 'pulse', bassType: 'synth',
+    roots: [38, 41, 45, 43, 38, 41, 46, 45],
+    chords: [
+      [50,57,62], [53,57,60], [57,60,64], [55,59,62],
+      [50,57,62], [53,57,60], [58,62,65], [57,61,64]
+    ],
+    pad: 0.05,
+    stab: 'x...x...x...x...', stabType: 'triangle', stabVol: 0.04,
+    bass: [0, N, 0, 12, 0, N, 0, 12, 0, N, 0, 12, 0, 12, 10, N],
+    drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '....x.......x...' },
+    melody: [
+      [74,T,77,T, 81,T,86,T, 85,T,81,T, 77,T,74,T],
+      [77,T,81,T, 84,T,89,T, 88,T,84,T, 81,T,77,T],
+      [81,T,84,T, 88,T,93,T, 91,T,88,T, 84,T,81,T],
+      [79,T,83,T, 86,T,91,T, 89,T,86,T, 83,T,79,T],
+      [86,T,84,T, 81,T,77,T, 81,T,86,T, 88,T,86,T],
+      [88,T,86,T, 84,T,81,T, 84,T,88,T, 89,T,88,T],
+      [89,T,91,T, 93,T,96,T, 94,T,91,T, 89,T,86,T],
+      [88,T,84,T, 81,T,77,T, 74,T,77,T, 81,T,T,T]
+    ]
+  },
+  {
+    id: 'redline',
+    name: 'REDLINE CHASE',
+    type: 'synth',
+    desc: 'Rock industrial feroz: no conta-giros vermelho em busca da liderança.',
+    bpm: 158, swing: 0,
+    lead: 'saw', bassType: 'rock',
+    roots: [40, 43, 45, 47, 40, 45, 43, 42],
+    chords: [
+      [52,59,64], [55,59,62], [57,60,64], [59,62,67],
+      [52,59,64], [57,60,64], [55,59,62], [54,57,62]
+    ],
+    pad: 0.04,
+    stab: '....x.......x.x.', stabType: 'sawtooth', stabVol: 0.038,
+    bass: [0, 12, 0, 12, 0, 0, 12, 0, 0, 12, 0, 12, 0, 12, 10, 12],
+    drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', c: '....x.......x...' },
+    melody: [
+      [76,T,79,T, 81,T,84,T, 88,T,84,T, 81,T,79,T],
+      [79,T,83,T, 86,T,91,T, 88,T,86,T, 83,T,79,T],
+      [81,T,84,T, 88,T,93,T, 91,T,88,T, 84,T,81,T],
+      [83,T,86,T, 89,T,95,T, 93,T,89,T, 86,T,83,T],
+      [88,T,84,T, 81,T,79,T, 81,T,84,T, 88,T,91,T],
+      [93,T,91,T, 88,T,84,T, 88,T,93,T, 95,T,93,T],
+      [91,T,88,T, 86,T,83,T, 86,T,91,T, 93,T,91,T],
+      [88,T,84,T, 81,T,76,T, 74,T,76,T, 79,T,T,T]
+    ]
+  },
+  {
+    id: 'apex',
+    name: 'APEX PREDATOR',
+    type: 'synth',
+    desc: 'Funk-metal rápido: ataque cirúrgico no ponto de tangência da curva.',
+    bpm: 150, swing: 0,
+    lead: 'saw', bassType: 'funk',
+    roots: [43, 46, 38, 41, 43, 46, 45, 41],
+    chords: [
+      [55,58,62], [58,62,65], [50,57,62], [53,57,60],
+      [55,58,62], [58,62,65], [57,60,64], [53,57,60]
+    ],
+    pad: 0.05,
+    stab: '..x...x...x...x.', stabType: 'triangle', stabVol: 0.042,
+    bass: [0, N, 0, N, 12, N, 0, 0, N, 12, N, 0, N, 12, 10, N],
+    drums: { k: 'x.....x...x.....', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', p: '..x...x.x...x...' },
+    melody: [
+      [75,T,79,T, 82,T,87,T, 86,T,82,T, 79,T,75,T],
+      [78,T,82,T, 85,T,90,T, 89,T,85,T, 82,T,78,T],
+      [74,T,77,T, 81,T,86,T, 84,T,81,T, 77,T,74,T],
+      [77,T,81,T, 84,T,89,T, 88,T,84,T, 81,T,77,T],
+      [82,T,86,T, 87,T,90,T, 92,T,90,T, 87,T,82,T],
+      [85,T,89,T, 90,T,93,T, 94,T,93,T, 89,T,85,T],
+      [87,T,90,T, 92,T,95,T, 94,T,92,T, 90,T,87,T],
+      [89,T,86,T, 82,T,79,T, 75,T,79,T, 82,T,T,T]
+    ]
+  },
+  {
+    id: 'thunder',
+    name: 'THUNDER ALLEY',
+    type: 'synth',
+    desc: 'Heavy Metal sinfônico: chuva, relâmpagos e velocidade sem limites.',
+    bpm: 154, swing: 0,
+    lead: 'saw', bassType: 'rock',
+    roots: [47, 43, 40, 45, 47, 43, 45, 46],
+    chords: [
+      [59,62,66], [55,59,62], [52,55,59], [57,60,64],
+      [59,62,66], [55,59,62], [57,61,64], [58,62,65]
+    ],
+    pad: 0.06,
+    stab: 'x...x...x...x...', stabType: 'sawtooth', stabVol: 0.045,
+    bass: [0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 12, 0, 0, 12, 10, 12],
+    drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '..x...x...x...x.' },
+    melody: [
+      [71,T,74,T, 78,T,83,T, 81,T,78,T, 74,T,71,T],
+      [75,T,79,T, 83,T,87,T, 86,T,83,T, 79,T,75,T],
+      [72,T,76,T, 79,T,84,T, 83,T,79,T, 76,T,72,T],
+      [77,T,81,T, 84,T,89,T, 88,T,84,T, 81,T,77,T],
+      [83,T,86,T, 90,T,95,T, 93,T,90,T, 86,T,83,T],
+      [87,T,90,T, 93,T,98,T, 96,T,93,T, 90,T,87,T],
+      [89,T,93,T, 95,T,99,T, 98,T,95,T, 93,T,89,T],
+      [95,T,93,T, 90,T,86,T, 83,T,86,T, 90,T,T,T]
+    ]
+  },
+  {
+    id: 'burnout',
+    name: 'BURNOUT FEVER',
+    type: 'synth',
+    desc: 'Arcade Rush a 160 BPM: fumaça de pneu e rotação máxima no asfalto.',
+    bpm: 160, swing: 0,
+    lead: 'pulse', bassType: 'synth',
+    roots: [48, 51, 44, 46, 48, 51, 46, 47],
+    chords: [
+      [60,63,67], [63,67,70], [56,60,63], [58,62,65],
+      [60,63,67], [63,67,70], [58,62,65], [59,62,65]
+    ],
+    pad: 0.04,
+    stab: '..x.....x...x.x.', stabType: 'sawtooth', stabVol: 0.04,
+    bass: [0, 12, 0, 12, 0, 12, 0, 12, 0, 12, 0, 12, 0, 0, 12, 12],
+    drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '..............x.' },
+    melody: [
+      [72,T,75,T, 79,T,84,T, 87,T,84,T, 79,T,75,T],
+      [75,T,79,T, 82,T,87,T, 90,T,87,T, 82,T,79,T],
+      [68,T,72,T, 75,T,80,T, 83,T,80,T, 75,T,72,T],
+      [70,T,74,T, 77,T,82,T, 85,T,82,T, 77,T,74,T],
+      [84,T,87,T, 91,T,96,T, 95,T,91,T, 87,T,84,T],
+      [87,T,91,T, 94,T,99,T, 98,T,94,T, 91,T,87,T],
+      [89,T,92,T, 96,T,101,T, 99,T,96,T, 92,T,89,T],
+      [96,T,94,T, 91,T,87,T, 84,T,87,T, 91,T,T,T]
+    ]
   }
 ];
 

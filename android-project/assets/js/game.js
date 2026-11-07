@@ -135,6 +135,8 @@
   // ==========================================
   class LH44RacingGame {
     constructor() {
+      window.game = this;
+      window.gameInstance = this;
       this.canvas = document.getElementById('gameCanvas');
       this.ctx = this.canvas.getContext('2d');
       this.audio = new AudioManager();
@@ -147,6 +149,7 @@
         },
         () => this.syncCanvasResolution()
       );
+      this.input.game = this;
       this.particlePool = new ParticlePool(180);
 
       this.state = 'MENU';
@@ -703,7 +706,7 @@
       if (!this.canvas) return;
       const vp = document.getElementById('viewport');
       let targetW = REF_WIDTH;
-      if (vp && (document.body.classList.contains('mobile-mode') || document.body.classList.contains('is-fullscreen'))) {
+      if (vp) {
         const w = vp.clientWidth || window.innerWidth;
         const h = vp.clientHeight || window.innerHeight;
         if (w > 0 && h > 0) {
@@ -996,6 +999,8 @@
         if (isRacingState) {
           const isF1Active = !!(this.f1LeaderboardToggled || (this.input && this.input.leaderboard));
           btnB.classList.toggle('active', isF1Active);
+        } else {
+          btnB.classList.remove('active');
         }
       }
 
@@ -1038,8 +1043,6 @@
           // Botão 1 (CONTINUAR)
           else if (click.x >= btnX && click.x <= btnX + btnW + slant && click.y >= btn1_Y && click.y <= btn1_Y + btnH) {
             this.mainMenuSelection = 1;
-            shouldAdvance = true;
-          } else {
             shouldAdvance = true;
           }
         }
@@ -1696,12 +1699,54 @@
         }
 
         if (this.input.justPressedUp) {
-          this.setupGroup = 0;
-          this.audio.playBeep(380, 0.04);
+          if (this.setupGroup === 1) {
+            if (this.songIndex >= 2) {
+              this.songIndex -= 2;
+              this.audio.stopTitleMusic();
+              this.audio.musicPlaying = true;
+              if (this.audio && typeof this.audio.setSong === 'function') {
+                this.audio.setSong(this.songIndex);
+              }
+              this.audio.playBeep(330, 0.05);
+            } else {
+              this.setupGroup = 0;
+              const curIdx = ENV_CONDITIONS.findIndex(e => e.id === this.envCond);
+              if (curIdx < 4 && curIdx >= 0) {
+                this.envCond = ENV_CONDITIONS[curIdx + 4].id;
+              }
+              this.audio.playBeep(380, 0.04);
+            }
+          } else {
+            const curIdx = ENV_CONDITIONS.findIndex(e => e.id === this.envCond);
+            if (curIdx >= 4) {
+              this.envCond = ENV_CONDITIONS[curIdx - 4].id;
+              this.audio.playBeep(330, 0.05);
+            } else {
+              this.audio.playBeep(380, 0.04);
+            }
+          }
         }
         if (this.input.justPressedDown) {
-          this.setupGroup = 1;
-          this.audio.playBeep(380, 0.04);
+          if (this.setupGroup === 0) {
+            const curIdx = ENV_CONDITIONS.findIndex(e => e.id === this.envCond);
+            if (curIdx < 4 && curIdx >= 0) {
+              this.envCond = ENV_CONDITIONS[curIdx + 4].id;
+              this.audio.playBeep(330, 0.05);
+            } else {
+              this.setupGroup = 1;
+              this.audio.playBeep(380, 0.04);
+            }
+          } else if (this.setupGroup === 1) {
+            if (this.songIndex + 2 < SONGS.length) {
+              this.songIndex += 2;
+              this.audio.stopTitleMusic();
+              this.audio.musicPlaying = true;
+              if (this.audio && typeof this.audio.setSong === 'function') {
+                this.audio.setSong(this.songIndex);
+              }
+              this.audio.playBeep(330, 0.05);
+            }
+          }
         }
         if (this.input.justPressedLeft) {
           if (this.setupGroup === 0) {
@@ -6352,30 +6397,34 @@
     // Geometria da tela "Preparar Corrida" (chips de clima/hora e de música)
     getSetupLayout() {
       const touchSafe = this.input.touchControlsVisible;
-      const cw = touchSafe ? 54 : 72;
-      const ch = touchSafe ? 13 : 15;
-      const g = 3;
-      const startX = INTERNAL_WIDTH / 2 - (4 * cw + 3 * g) / 2;
-      const y1 = touchSafe ? 40 : 44;
+      const cw = touchSafe ? 66 : 74;
+      const ch = touchSafe ? 8.2 : 8.8;
+      const gx = touchSafe ? 2.5 : 3;
+      const gy = touchSafe ? 2.0 : 2.2;
+      const startX = Math.round(INTERNAL_WIDTH / 2 - (4 * cw + 3 * gx) / 2);
+      const y1 = touchSafe ? 31 : 32;
       const conds = [];
       for (let i = 0; i < ENV_CONDITIONS.length; i++) {
         const col = i % 4;
         const row = Math.floor(i / 4);
-        conds.push({ x: startX + col * (cw + g), y: y1 + row * (ch + g), w: cw, h: ch, i });
+        conds.push({ x: startX + col * (cw + gx), y: y1 + row * (ch + gy), w: cw, h: ch, i });
       }
-      const sw = touchSafe ? 110 : 148;
-      const sStartX = INTERNAL_WIDTH / 2 - (2 * sw + g) / 2;
-      const y2 = touchSafe ? 86 : 96;
+      const sw = touchSafe ? 136 : 152;
+      const sh = touchSafe ? 8.2 : 8.5;
+      const sgx = touchSafe ? 3.5 : 4;
+      const sgy = touchSafe ? 2.0 : 2.2;
+      const sStartX = Math.round(INTERNAL_WIDTH / 2 - (2 * sw + sgx) / 2);
+      const y2 = touchSafe ? 61 : 64;
       const songs = [];
       for (let i = 0; i < SONGS.length; i++) {
         const col = i % 2;
         const row = Math.floor(i / 2);
-        songs.push({ x: sStartX + col * (sw + g), y: y2 + row * (ch + g), w: sw, h: ch, i });
+        songs.push({ x: sStartX + col * (sw + sgx), y: y2 + row * (sh + sgy), w: sw, h: sh, i });
       }
       const btnW = touchSafe ? 88 : 98;
       const startW = touchSafe ? 116 : 130;
-      const btnH = touchSafe ? 18 : 20;
-      const btnY = touchSafe ? 148 : 158;
+      const btnH = touchSafe ? 15 : 16;
+      const btnY = touchSafe ? 138 : 144;
       const totalBtnsW = btnW + 12 + startW;
       const btnStartX = Math.round(INTERNAL_WIDTH / 2 - totalBtnsW / 2);
       const btnBack = {
@@ -6392,11 +6441,15 @@
       };
       return {
         touchSafe, conds, songs, btnBack, startBtn,
-        label1Y: touchSafe ? 36 : 40,
-        label2Y: touchSafe ? 82 : 91,
-        descY: touchSafe ? 135 : 144,
-        promptY: touchSafe ? 157 : 169,
-        hintY: touchSafe ? 178 : 192
+        titleY: touchSafe ? 13 : 14,
+        subY: touchSafe ? 21 : 22,
+        label1Y: touchSafe ? 28 : 29,
+        label2Y: touchSafe ? 57 : 60,
+        descY: touchSafe ? 116 : 122,
+        gridY: touchSafe ? 122 : 128,
+        gridH: touchSafe ? 10.5 : 11,
+        gridW: touchSafe ? 280 : 308,
+        hintY: touchSafe ? 160 : 168
       };
     }
 
@@ -7604,20 +7657,20 @@
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00E5FF';
-      ctx.font = touchSafe ? 'bold 10px monospace' : 'bold 13px monospace';
+      ctx.font = touchSafe ? 'bold 9px monospace' : 'bold 12px monospace';
       const def = TRACK_DEFINITIONS[this.trackIndex];
       const modeBadge = (this.gameMode === 'QUICK_RACE') ? '⚡ CORRIDA RÁPIDA' : `🏆 CAMPEONATO F1 (${this.trackIndex + 1}/${TRACK_DEFINITIONS.length})`;
-      ctx.fillText(`PREPARAR — ${modeBadge}`, INTERNAL_WIDTH / 2, touchSafe ? 16 : 20);
+      ctx.fillText(`PREPARAR — ${modeBadge}`, INTERNAL_WIDTH / 2, L.titleY);
 
       ctx.fillStyle = '#FFD700';
-      ctx.font = touchSafe ? 'bold 6.5px monospace' : 'bold 7.5px monospace';
-      ctx.fillText(`CIRCUITO: ${def.name.toUpperCase()} (3 VOLTAS)`, INTERNAL_WIDTH / 2, touchSafe ? 26 : 31);
+      ctx.font = touchSafe ? 'bold 6px monospace' : 'bold 7px monospace';
+      ctx.fillText(`CIRCUITO: ${def.name.toUpperCase()} (3 VOLTAS)`, INTERNAL_WIDTH / 2, L.subY);
 
       // Grupo 1: horario / clima
-      ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
+      ctx.font = touchSafe ? 'bold 7px monospace' : 'bold 8px monospace';
       ctx.fillStyle = this.setupGroup === 0 ? '#FFD700' : '#90A4AE';
       ctx.fillText((this.setupGroup === 0 ? '\u25B6 ' : '') + 'HOR\u00C1RIO / CLIMA', INTERNAL_WIDTH / 2, L.label1Y);
-      const chipFont = touchSafe ? 'bold 6.4px monospace' : 'bold 7.4px monospace';
+      const chipFont = touchSafe ? 'bold 6px monospace' : 'bold 7px monospace';
       for (let k = 0; k < L.conds.length; k++) {
         const c = L.conds[k];
         const info = ENV_CONDITIONS[c.i];
@@ -7629,14 +7682,15 @@
         ctx.strokeRect(c.x, c.y, c.w, c.h);
         ctx.fillStyle = selected ? '#FFFFFF' : '#B0BEC5';
         ctx.font = chipFont;
-        ctx.fillText(info.icon + ' ' + info.label, c.x + c.w / 2, c.y + c.h / 2 + 2.6);
+        ctx.fillText(info.icon + ' ' + info.label, c.x + c.w / 2, c.y + c.h / 2 + 2.4);
       }
 
       // Grupo 2: musica
-      ctx.font = touchSafe ? 'bold 7.5px monospace' : 'bold 8.5px monospace';
+      ctx.font = touchSafe ? 'bold 7px monospace' : 'bold 8px monospace';
       ctx.fillStyle = this.setupGroup === 1 ? '#FFD700' : '#90A4AE';
       ctx.fillText((this.setupGroup === 1 ? '\u25B6 ' : '') + 'TRILHA SONORA', INTERNAL_WIDTH / 2, L.label2Y);
       const curSongIdx = (typeof this.songIndex === 'number' && this.songIndex >= 0 && this.songIndex < SONGS.length) ? this.songIndex : 0;
+      const songChipFont = touchSafe ? 'bold 5.6px monospace' : 'bold 6.4px monospace';
       for (let k = 0; k < L.songs.length; k++) {
         const c = L.songs[k];
         const selected = (c.i === curSongIdx);
@@ -7646,11 +7700,11 @@
         ctx.lineWidth = selected ? 1.5 : 1;
         ctx.strokeRect(c.x, c.y, c.w, c.h);
         ctx.fillStyle = selected ? '#FFFFFF' : '#B0BEC5';
-        ctx.font = chipFont;
-        ctx.fillText('\u266A ' + SONGS[c.i].name, c.x + c.w / 2, c.y + c.h / 2 + 2.6);
+        ctx.font = songChipFont;
+        ctx.fillText('\u266A ' + SONGS[c.i].name, c.x + c.w / 2, c.y + c.h / 2 + 2.2);
       }
       ctx.fillStyle = '#B0BEC5';
-      ctx.font = touchSafe ? '6.3px monospace' : '7.5px monospace';
+      ctx.font = touchSafe ? '5.8px monospace' : '6.8px monospace';
       const curSong = SONGS[curSongIdx] || SONGS[0];
       ctx.fillText(curSong.desc || '', INTERNAL_WIDTH / 2, L.descY);
 
@@ -7663,10 +7717,10 @@
         const m19 = b19.model ? b19.model.name : 'RIVAL';
         const m18 = b18.model ? b18.model.name : 'RIVAL';
 
-        const gW = touchSafe ? 276 : 294;
-        const gH = 13;
+        const gW = L.gridW;
+        const gH = L.gridH;
         const gX = Math.round(INTERNAL_WIDTH / 2 - gW / 2);
-        const gY = touchSafe ? 133 : 142;
+        const gY = L.gridY;
         ctx.fillStyle = 'rgba(255, 215, 0, 0.12)';
         ctx.fillRect(gX, gY, gW, gH);
         ctx.strokeStyle = 'rgba(255, 215, 0, 0.45)';
@@ -7674,8 +7728,8 @@
         ctx.strokeRect(gX, gY, gW, gH);
 
         ctx.fillStyle = '#FFD700';
-        ctx.font = touchSafe ? 'bold 6.2px monospace' : 'bold 7px monospace';
-        ctx.fillText(`🏁 SEU GRID: P20 | AO SEU LADO (P19): ${m19} | À FRENTE (P18): ${m18}`, INTERNAL_WIDTH / 2, gY + gH / 2 + 2.2);
+        ctx.font = touchSafe ? 'bold 5.8px monospace' : 'bold 6.6px monospace';
+        ctx.fillText(`🏁 SEU GRID: P20 | AO SEU LADO (P19): ${m19} | À FRENTE (P18): ${m18}`, INTERNAL_WIDTH / 2, gY + gH / 2 + 2.0);
       }
 
       // Botões ◀ VOLTAR e ▶ INICIAR CORRIDA

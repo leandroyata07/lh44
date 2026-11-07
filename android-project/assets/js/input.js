@@ -1,5 +1,6 @@
   class InputManager {
     constructor(onUserGesture = null, onViewportChange = null) {
+      this.game = null;
       this.onUserGesture = onUserGesture;
       this.onViewportChange = onViewportChange;
 
@@ -73,6 +74,10 @@
       this.setupOpacityAndFullscreenUI();
     }
 
+    getGame() {
+      return this.game || window.game || window.gameInstance || null;
+    }
+
     detectMobile() {
       const ua = navigator.userAgent || '';
       const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
@@ -128,12 +133,13 @@
     }
 
     tryAutoEnterFullscreen() {
-      if (this.userExitedFullscreen || this.isFullscreenActive()) return;
-      this.requestFullscreenAndLandscape();
+      // Intencionalmente desativado por padrão: a tela já abre 100% preenchida no navegador
+      // O modo tela cheia do sistema é opcional via F11 ou pelo botão "⛶ TELA CHEIA" nas configurações
+      return;
     }
 
     tryAutoEnterMobileFullscreen() {
-      this.tryAutoEnterFullscreen();
+      return;
     }
 
     requestFullscreenAndLandscape() {
@@ -180,7 +186,6 @@
 
     notifyGesture(allowAutoFs = true) {
       if (this.onUserGesture) this.onUserGesture();
-      if (allowAutoFs) this.tryAutoEnterMobileFullscreen();
     }
 
     toggleSettings() {
@@ -189,18 +194,19 @@
       const gearBtn = document.getElementById('gear-btn');
       if (panel) {
         const isOpen = panel.classList.contains('open');
+        const game = this.getGame();
         if (isOpen) {
           panel.classList.remove('open');
           if (gearBtn) gearBtn.classList.remove('active');
-          if (window.game && window.game.state === 'PAUSED') {
-            window.game.triggerResumeCountdown();
+          if (game && game.state === 'PAUSED') {
+            game.triggerResumeCountdown();
           }
         } else {
           panel.classList.add('open');
           if (gearBtn) gearBtn.classList.add('active');
           // Abrir configurações pausa a corrida de fato
-          if (window.game && window.game.state === 'RACING') {
-            window.game.pauseGame();
+          if (game && game.state === 'RACING') {
+            game.pauseGame();
           } else {
             this.justPressedEsc = true;
           }
@@ -235,7 +241,7 @@
       this.nitro = this.keys.nitro || this.touch.btnY || this.touch.btn1Nitro || !!this.gpActiveNitro;
 
       const prevLeaderboard = this.leaderboard;
-      this.leaderboard = !!(this.keys.leaderboard || this.touch.btnB || this.gpLeaderboard);
+      this.leaderboard = !!(this.keys.leaderboard || this.gpLeaderboard);
       if (this.leaderboard && !prevLeaderboard) this.justPressedLeaderboard = true;
 
       // Navegação por teclado / touch
@@ -308,15 +314,6 @@
         this.gamepadConnected = false;
       });
 
-      // Solicita tela cheia por padrão na primeira interação em qualquer dispositivo (PC ou Celular)
-      const tryAutoFs = () => {
-        this.tryAutoEnterFullscreen();
-      };
-      window.addEventListener('touchstart', tryAutoFs, { passive: true });
-      window.addEventListener('pointerdown', tryAutoFs, { passive: true });
-      window.addEventListener('click', tryAutoFs, { passive: true });
-      window.addEventListener('keydown', tryAutoFs, { passive: true });
-
       window.addEventListener('keydown', (e) => {
         this.notifyGesture(false);
         const isInput = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
@@ -330,7 +327,8 @@
           return;
         }
 
-        const isRacingMode = Boolean(window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED'));
+        const game = this.getGame();
+        const isRacingMode = Boolean(game && (game.state === 'RACING' || game.state === 'COUNTDOWN' || game.state === 'PAUSED' || game.state === 'RESUME_COUNTDOWN'));
 
         // Regra universal: Fora das corridas (nos menus), A = Confirmar/Avançar e B = Voltar
         if (!isRacingMode) {
@@ -772,11 +770,12 @@
 
       bindTap(pauseBtn, () => {
         this.notifyGesture(false);
-        if (window.game) {
-          if (window.game.state === 'RACING') {
-            window.game.pauseGame();
-          } else if (window.game.state === 'PAUSED') {
-            window.game.triggerResumeCountdown();
+        const game = this.getGame();
+        if (game) {
+          if (game.state === 'RACING') {
+            game.pauseGame();
+          } else if (game.state === 'PAUSED') {
+            game.triggerResumeCountdown();
           } else {
             this.justPressedEsc = true;
           }
@@ -792,8 +791,9 @@
       bindTap(closeBtn, () => {
         if (panel) panel.classList.remove('open');
         if (gearBtn) gearBtn.classList.remove('active');
-        if (window.game && window.game.state === 'PAUSED') {
-          window.game.triggerResumeCountdown();
+        const game = this.getGame();
+        if (game && game.state === 'PAUSED') {
+          game.triggerResumeCountdown();
         }
       });
 
@@ -801,8 +801,9 @@
         this.notifyGesture(false);
         if (panel) panel.classList.remove('open');
         if (gearBtn) gearBtn.classList.remove('active');
-        if (window.game && window.game.state === 'PAUSED') {
-          window.game.triggerResumeCountdown();
+        const game = this.getGame();
+        if (game && game.state === 'PAUSED') {
+          game.triggerResumeCountdown();
         } else {
           this.justPressedEsc = true;
         }
@@ -1027,23 +1028,28 @@
           this.justPressedEnter = true;
         }
 
-        // Botão B alterna HUD F1 durante corrida / volta e cancela nos menus e pausa
+        // Botão B no controle virtual:
+        // Durante as corridas: estritamente para exibir/ocultar o HUD F1 (sem pausar o jogo!).
+        // Fora das corridas: voltar/cancelar nos menus ou despausar no menu de pausa.
         if (newB) {
-          if (window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED' || window.game.state === 'RESUME_COUNTDOWN')) {
-            window.game.f1LeaderboardToggled = !window.game.f1LeaderboardToggled;
-            if (window.game.audio) window.game.audio.playBeep(520, 0.05);
-          } else if (window.game && window.game.state === 'PAUSED') {
-            window.game.handlePauseBackKey();
-          } else {
+          const game = this.getGame();
+          const isRaceActive = Boolean(game && (game.state === 'RACING' || game.state === 'COUNTDOWN' || game.state === 'RESUME_COUNTDOWN'));
+          if (isRaceActive) {
+            game.f1LeaderboardToggled = !game.f1LeaderboardToggled;
+            if (game.audio) game.audio.playBeep(520, 0.05);
+          } else if (game && game.state === 'PAUSED') {
+            game.handlePauseBackKey();
+          } else if (!isRaceActive) {
             this.justPressedEsc = true;
           }
         }
 
         // Botão X (Freio) pode voltar em menus fora da corrida
         if (newX) {
-          if (window.game && window.game.state !== 'RACING' && window.game.state !== 'COUNTDOWN' && window.game.state !== 'RESUME_COUNTDOWN') {
-            if (window.game.state === 'PAUSED') {
-              window.game.handlePauseBackKey();
+          const game = this.getGame();
+          if (game && game.state !== 'RACING' && game.state !== 'COUNTDOWN' && game.state !== 'RESUME_COUNTDOWN') {
+            if (game.state === 'PAUSED') {
+              game.handlePauseBackKey();
             } else {
               this.justPressedEsc = true;
             }
@@ -1062,8 +1068,10 @@
         if (btnXEl) btnXEl.classList.toggle('active', bx);
         if (btnAEl) btnAEl.classList.toggle('active', ba);
         if (btnBEl) {
-          const isF1Active = bb || (window.game && window.game.f1LeaderboardToggled);
-          btnBEl.classList.toggle('active', !!isF1Active);
+          const game = this.getGame();
+          const isRacingState = Boolean(game && (game.state === 'RACING' || game.state === 'COUNTDOWN' || game.state === 'PAUSED' || game.state === 'RESUME_COUNTDOWN'));
+          const isF1Active = isRacingState ? Boolean(game && game.f1LeaderboardToggled) : bb;
+          btnBEl.classList.toggle('active', isF1Active);
         }
 
         this.syncCombinedInputs();
@@ -1299,10 +1307,11 @@
 
       // Start = Pausa (pausa e despausa a corrida / confirma menus)
       if (checkPulse('btnStart', btnStart)) {
-        if (window.game && window.game.state === 'RACING') {
-          window.game.pauseGame();
-        } else if (window.game && window.game.state === 'PAUSED') {
-          window.game.handlePauseStartKey();
+        const game = this.getGame();
+        if (game && game.state === 'RACING') {
+          game.pauseGame();
+        } else if (game && game.state === 'PAUSED') {
+          game.handlePauseStartKey();
         } else {
           this.justPressedEsc = true;
           this.justPressedEnter = true;
@@ -1316,13 +1325,14 @@
 
       // Botão B = Alterna Classificação F1 na corrida / Voltar e Cancelar nos Menus
       if (checkPulse('btnB', btnB)) {
-        if (window.game && (window.game.state === 'RACING' || window.game.state === 'COUNTDOWN' || window.game.state === 'PAUSED' || window.game.state === 'RESUME_COUNTDOWN')) {
-          this.justPressedLeaderboard = true;
-          window.game.f1LeaderboardToggled = !window.game.f1LeaderboardToggled;
-          if (window.game.audio) window.game.audio.playBeep(520, 0.05);
-        } else if (window.game && window.game.state === 'PAUSED') {
-          window.game.handlePauseBackKey();
-        } else {
+        const game = this.getGame();
+        const isRaceActive = Boolean(game && (game.state === 'RACING' || game.state === 'COUNTDOWN' || game.state === 'RESUME_COUNTDOWN'));
+        if (isRaceActive) {
+          game.f1LeaderboardToggled = !game.f1LeaderboardToggled;
+          if (game.audio) game.audio.playBeep(520, 0.05);
+        } else if (game && game.state === 'PAUSED') {
+          game.handlePauseBackKey();
+        } else if (!isRaceActive) {
           this.justPressedEsc = true;
         }
       }

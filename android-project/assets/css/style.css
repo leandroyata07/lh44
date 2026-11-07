@@ -9,7 +9,7 @@
     html, body {
       width: 100%;
       height: 100%;
-      background: radial-gradient(circle at center, #0a1222 0%, #020306 100%);
+      background: #000;
       overflow: hidden;
       overscroll-behavior: none;
       touch-action: none;
@@ -18,18 +18,20 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 0;
     }
     #viewport {
       position: relative;
-      width: min(100vw, calc((100vh - 28px) * 16 / 9));
-      max-width: 1280px;
-      max-height: 720px;
-      aspect-ratio: 16 / 9;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      max-width: none;
+      max-height: none;
+      aspect-ratio: auto;
       background: #000;
-      border: 1px solid rgba(0, 180, 216, 0.3);
-      border-radius: 4px;
-      box-shadow: 0 12px 60px rgba(0, 0, 0, 0.95), 0 0 24px rgba(0, 180, 216, 0.22);
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
       display: flex;
       align-items: center;
       justify-content: center;
