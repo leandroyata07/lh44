@@ -371,6 +371,8 @@ class AudioManager {
     this._musicPlaying = false;
     this.musicInterval = null;
     this.step = 0;
+    this.titleStep = 0;
+    this.endingStep = 0;
     this.songIndex = 0;
     this.musicBus = null;
     this.noiseBuf = null;
@@ -441,50 +443,55 @@ class AudioManager {
     if (!this._enabled) return;
     if (!this.ctx) this.init();
     if (this.ctx && this.ctx.state === 'suspended') {
-      if (!this._isResuming) {
-        this._isResuming = true;
-        this.ctx.resume().then(() => {
-          this._isResuming = false;
-          if (this.musicBus) {
-            this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
-          }
-          if (forceStartTitle) {
-            this.playTitleMusic();
-          }
-        }).catch(() => {
-          this._isResuming = false;
-        });
-      }
+      this.ctx.resume().then(() => {
+        if (this.musicBus) {
+          this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
+        }
+        const g = window.game || window.gameInstance;
+        const isMenu = !g || (g.state === 'MENU' || g.state === 'MODE_SELECT' || g.state === 'DIFFICULTY_SELECT' || g.state === 'TRACK_SELECT' || g.state === 'CAR_SELECT' || g.state === 'COLOR_SELECT' || g.state === 'NAME_INPUT');
+        if (forceStartTitle && isMenu && !this._musicPlaying && !this.titlePlaying) {
+          this.playTitleMusic();
+        }
+      }).catch(() => {});
       return;
     }
 
-    if (forceStartTitle && !this.titlePlaying && !this._musicPlaying) {
+    const g = window.game || window.gameInstance;
+    const isMenu = !g || (g.state === 'MENU' || g.state === 'MODE_SELECT' || g.state === 'DIFFICULTY_SELECT' || g.state === 'TRACK_SELECT' || g.state === 'CAR_SELECT' || g.state === 'COLOR_SELECT' || g.state === 'NAME_INPUT');
+    if (forceStartTitle && isMenu && !this.titlePlaying && !this._musicPlaying) {
       this.playTitleMusic();
     }
   }
 
   playTitleMusic() {
-    this.stopEndingMusic();
     if (!this._enabled || !this.musicEnabled) return;
-    if (this.titlePlaying) return;
+    if (this.titlePlaying || this._musicPlaying) return;
+
+    const g = window.game || window.gameInstance;
+    if (g && (g.state === 'RACING' || g.state === 'COUNTDOWN' || g.state === 'PAUSED' || g.state === 'RESUME_COUNTDOWN')) {
+      return;
+    }
+
+    if (this.endingPlaying) {
+      this.stopEndingMusic();
+    }
+
     if (!this.ctx) this.init();
     if (this.ctx && this.ctx.state === 'suspended') {
-      if (!this._isResuming) {
-        this._isResuming = true;
-        this.ctx.resume().then(() => {
-          this._isResuming = false;
-          if (this.musicBus) {
-            this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
-          }
+      this.ctx.resume().then(() => {
+        if (this.musicBus) {
+          this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
+        }
+        const curG = window.game || window.gameInstance;
+        const isMenu = !curG || (curG.state === 'MENU' || curG.state === 'MODE_SELECT' || curG.state === 'DIFFICULTY_SELECT' || curG.state === 'TRACK_SELECT' || curG.state === 'CAR_SELECT' || curG.state === 'COLOR_SELECT' || curG.state === 'NAME_INPUT');
+        if (isMenu && !this._musicPlaying && !this.titlePlaying) {
           this.playTitleMusic();
-        }).catch(() => {
-          this._isResuming = false;
-        });
-      }
+        }
+      }).catch(() => {});
       return;
     }
     this.titlePlaying = true;
-    this.step = 0;
+    this.titleStep = 0;
     if (this.ctx && this.ctx.state === 'running') {
       if (this.musicBus) {
         this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
@@ -500,18 +507,14 @@ class AudioManager {
     if (!this._enabled || !this.musicEnabled) return;
     this.endingPlaying = true;
     this.endingSongType = isTop3 ? 'victory' : 'motivational';
-    this.step = 0;
+    this.endingStep = 0;
     if (!this.ctx) this.init();
-    if (this.ctx && this.ctx.state === 'suspended' && !this._isResuming) {
-      this._isResuming = true;
+    if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().then(() => {
-        this._isResuming = false;
         if (this.musicBus) {
           this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
         }
-      }).catch(() => {
-        this._isResuming = false;
-      });
+      }).catch(() => {});
     }
     if (this.ctx && this.ctx.state === 'running') {
       this.nextNoteTime = this.ctx.currentTime + 0.05;
@@ -521,12 +524,12 @@ class AudioManager {
 
   stopEndingMusic() {
     this.endingPlaying = false;
-    this.step = 0;
+    this.endingStep = 0;
   }
 
   stopTitleMusic() {
     this.titlePlaying = false;
-    this.step = 0;
+    this.titleStep = 0;
     if (this.titleAudio) {
       try {
         this.titleAudio.pause();
@@ -1028,11 +1031,11 @@ class AudioManager {
   }
 
   startMusic() {
-    if (this.musicInterval) clearInterval(this.musicInterval);
     if (!this.ctx) return;
-    this.step = 0;
-    this.nextNoteTime = this.ctx.currentTime + 0.08;
-    this.musicInterval = setInterval(() => this.musicScheduler(), 25);
+    if (!this.musicInterval) {
+      this.nextNoteTime = this.ctx.currentTime + 0.08;
+      this.musicInterval = setInterval(() => this.musicScheduler(), 25);
+    }
   }
 
   setSong(i) {
@@ -1056,22 +1059,32 @@ class AudioManager {
       const song = (this.endingSongType === 'motivational') ? ENDING_MOTIVATIONAL_SONG : ENDING_VICTORY_SONG;
       const stepDur = 60 / song.bpm / 4;
       while (this.nextNoteTime < now + 0.14) {
-        this.playMusicStep(song, this.step, this.nextNoteTime, stepDur);
+        this.playMusicStep(song, this.endingStep, this.nextNoteTime, stepDur);
         this.nextNoteTime += stepDur;
-        this.step++;
+        this.endingStep++;
       }
       return;
     }
 
     // Música de Abertura / Menu sintetizada por código Web Audio API
     if (this._enabled && this.titlePlaying) {
+      if (this._musicPlaying) {
+        this.titlePlaying = false;
+        return;
+      }
+      const g = window.game || window.gameInstance;
+      if (g && (g.state === 'RACING' || g.state === 'COUNTDOWN' || g.state === 'PAUSED' || g.state === 'RESUME_COUNTDOWN')) {
+        this.titlePlaying = false;
+        return;
+      }
+
       if (this.nextNoteTime < now - 0.25) this.nextNoteTime = now + 0.05;
       const song = TITLE_THEME_SONG;
       const stepDur = 60 / song.bpm / 4;
       while (this.nextNoteTime < now + 0.14) {
-        this.playMusicStep(song, this.step, this.nextNoteTime, stepDur);
+        this.playMusicStep(song, this.titleStep, this.nextNoteTime, stepDur);
         this.nextNoteTime += stepDur;
-        this.step++;
+        this.titleStep++;
       }
       return;
     }

@@ -188,27 +188,42 @@
       if (this.onUserGesture) this.onUserGesture();
     }
 
+    isSettingsOpen() {
+      const panel = document.getElementById('opacity-panel');
+      return !!(panel && panel.classList.contains('open'));
+    }
+
+    closeSettings() {
+      const panel = document.getElementById('opacity-panel');
+      const backdrop = document.getElementById('opacity-backdrop');
+      const gearBtn = document.getElementById('gear-btn');
+      if (panel && panel.classList.contains('open')) {
+        panel.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('open');
+        if (gearBtn) gearBtn.classList.remove('active');
+        const game = this.getGame();
+        if (game && game.state === 'PAUSED') {
+          game.triggerResumeCountdown();
+        }
+      }
+    }
+
     toggleSettings() {
       this.notifyGesture(false);
       const panel = document.getElementById('opacity-panel');
+      const backdrop = document.getElementById('opacity-backdrop');
       const gearBtn = document.getElementById('gear-btn');
       if (panel) {
         const isOpen = panel.classList.contains('open');
-        const game = this.getGame();
         if (isOpen) {
-          panel.classList.remove('open');
-          if (gearBtn) gearBtn.classList.remove('active');
-          if (game && game.state === 'PAUSED') {
-            game.triggerResumeCountdown();
-          }
+          this.closeSettings();
         } else {
           panel.classList.add('open');
+          if (backdrop) backdrop.classList.add('open');
           if (gearBtn) gearBtn.classList.add('active');
-          // Abrir configurações pausa a corrida de fato
+          const game = this.getGame();
           if (game && game.state === 'RACING') {
             game.pauseGame();
-          } else {
-            this.justPressedEsc = true;
           }
         }
       }
@@ -324,6 +339,27 @@
             if (!this.esc) this.justPressedEsc = true;
             this.esc = true;
           }
+          return;
+        }
+
+        // Se o modal de configurações estiver aberto, isola completamente a entrada
+        if (this.isSettingsOpen()) {
+          const isAndroidBackKey = (e.key === 'Back' || e.code === 'GoBack' || e.keyCode === 4);
+          const isCloseKey = (e.key === 'Escape' || isAndroidBackKey || e.keyCode === 97 || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C');
+          if (isCloseKey) {
+            e.preventDefault();
+            this.closeSettings();
+            return;
+          }
+          // Bloqueia qualquer outra tecla de chegar ao jogo em segundo plano
+          e.preventDefault();
+          return;
+        }
+
+        // Tecla C / c abre as configurações rapidamente
+        if (e.key === 'c' || e.key === 'C') {
+          e.preventDefault();
+          this.toggleSettings();
           return;
         }
 
@@ -499,6 +535,10 @@
 
       window.addEventListener('keyup', (e) => {
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+          return;
+        }
+        if (this.isSettingsOpen()) {
+          e.preventDefault();
           return;
         }
         if (e.keyCode === 96) {
@@ -768,8 +808,19 @@
         });
       }
 
+      const backdrop = document.getElementById('opacity-backdrop');
+      if (backdrop) {
+        bindTap(backdrop, () => {
+          this.closeSettings();
+        });
+      }
+
       bindTap(pauseBtn, () => {
         this.notifyGesture(false);
+        if (this.isSettingsOpen()) {
+          this.closeSettings();
+          return;
+        }
         const game = this.getGame();
         if (game) {
           if (game.state === 'RACING') {
@@ -789,24 +840,12 @@
       });
 
       bindTap(closeBtn, () => {
-        if (panel) panel.classList.remove('open');
-        if (gearBtn) gearBtn.classList.remove('active');
-        const game = this.getGame();
-        if (game && game.state === 'PAUSED') {
-          game.triggerResumeCountdown();
-        }
+        this.closeSettings();
       });
 
       bindTap(resumeBtn, () => {
         this.notifyGesture(false);
-        if (panel) panel.classList.remove('open');
-        if (gearBtn) gearBtn.classList.remove('active');
-        const game = this.getGame();
-        if (game && game.state === 'PAUSED') {
-          game.triggerResumeCountdown();
-        } else {
-          this.justPressedEsc = true;
-        }
+        this.closeSettings();
       });
 
       const handleFsToggle = () => {
@@ -865,10 +904,8 @@
       if (canvasEl) {
         const handleCanvasTap = (clientX, clientY) => {
           this.notifyGesture(true);
-          if (panel && panel.classList.contains('open')) {
-            panel.classList.remove('open');
-            const gearBtn = document.getElementById('gear-btn');
-            if (gearBtn) gearBtn.classList.remove('active');
+          if (this.isSettingsOpen()) {
+            this.closeSettings();
             return;
           }
           const pt = this.toViewportLocal(clientX, clientY);
@@ -1299,6 +1336,22 @@
         this.prevGamepadButtons[key] = isDown;
         return isDown && !prev;
       };
+
+      // Se as configurações estiverem abertas, gamepad fecha o menu de forma segura sem vazar comandos ao jogo
+      if (this.isSettingsOpen()) {
+        if (checkPulse('btnSelect', btnSelect) || checkPulse('btnB', btnB) || checkPulse('btnStart', btnStart)) {
+          this.closeSettings();
+        }
+        this.gpThrottlePressure = 0;
+        this.gpBrakePressure = 0;
+        this.gpActiveGas = false;
+        this.gpActiveBrake = false;
+        this.gpActiveLeft = false;
+        this.gpActiveRight = false;
+        this.gpActiveNitro = false;
+        this.analogSteer = 0;
+        return;
+      }
 
       // Select = Configurações (abre o painel e pausa)
       if (checkPulse('btnSelect', btnSelect)) {

@@ -21,7 +21,9 @@
       this.steerAngle = 0;
       this.inSlipstream = false;
       this.collisionCooldown = 0;
+      this.sceneryCollisionCooldown = 0;
       this.bumpBoostTimer = 0;
+      this.powerBrakeHoldTime = 0;
 
       this.currentGear = 1;
       this.rpm = 1000;
@@ -386,16 +388,46 @@
 
       this.loadTrack(this.trackIndex);
       this.updateEnv(0.016);
-      const onFirstUserGesture = () => {
+
+      // Inicia a música tema automaticamente ao abrir o jogo
+      const cleanupThemeListeners = () => {
+        window.removeEventListener('pointerdown', startThemeMusicNow);
+        window.removeEventListener('keydown', startThemeMusicNow);
+        window.removeEventListener('touchstart', startThemeMusicNow);
+        window.removeEventListener('click', startThemeMusicNow);
+        window.removeEventListener('focus', startThemeMusicNow);
+      };
+
+      const startThemeMusicNow = () => {
         if (this.audio) {
+          if (this.audio.titlePlaying || this.audio.musicPlaying) {
+            cleanupThemeListeners();
+            return;
+          }
           const isMenuState = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'NAME_INPUT');
-          this.audio.unlockAudio(isMenuState);
+          if (isMenuState) {
+            this.audio.unlockAudio(true);
+            this.audio.playTitleMusic();
+            if (this.audio.titlePlaying) {
+              cleanupThemeListeners();
+            }
+          }
         }
       };
-      window.addEventListener('pointerdown', onFirstUserGesture, { passive: true });
-      window.addEventListener('keydown', onFirstUserGesture, { passive: true });
-      window.addEventListener('touchstart', onFirstUserGesture, { passive: true });
-      window.addEventListener('click', onFirstUserGesture, { passive: true });
+
+      // Tenta tocar de imediato (WebView Android e navegadores com autoplay)
+      startThemeMusicNow();
+      setTimeout(startThemeMusicNow, 60);
+      setTimeout(startThemeMusicNow, 200);
+
+      window.addEventListener('pointerdown', startThemeMusicNow, { passive: true });
+      window.addEventListener('keydown', startThemeMusicNow, { passive: true });
+      window.addEventListener('touchstart', startThemeMusicNow, { passive: true });
+      window.addEventListener('click', startThemeMusicNow, { passive: true });
+      window.addEventListener('focus', startThemeMusicNow, { passive: true });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) startThemeMusicNow();
+      }, { passive: true });
       this.scheduleNextFrame();
     }
 
@@ -765,6 +797,9 @@
       this.trackIndex = index;
       const def = TRACK_DEFINITIONS[index];
       this.track = TrackBuilder.build(def);
+      if (def && def.theme) {
+        this.envCond = def.theme;
+      }
     }
 
     setupRaceGrid() {
@@ -964,6 +999,13 @@
 
       if (this.input && typeof this.input.pollGamepad === 'function') {
         this.input.pollGamepad(dt);
+      }
+
+      // Se as configurações estiverem abertas, isola o jogo no fundo, silencia efeitos e impede que qualquer ação despause
+      if (this.input && typeof this.input.isSettingsOpen === 'function' && this.input.isSettingsOpen()) {
+        if (this.audio) this.audio.silenceEffects();
+        if (this.input.clearPulses) this.input.clearPulses();
+        return;
       }
       if (this.input.justPressedM) {
         this.audio.enabled = !this.audio.enabled;
@@ -2478,12 +2520,13 @@
       const downhillBonus = Math.max(0, -slope * 300);
       const dynamicMaxSpeed = effectiveMaxSpeed + downhillBonus;
 
-      if (isAccelerating && p.isBraking) {
-        // Trail Braking / Frenagem esportiva simultânea:
-        // Pressionar freio e acelerador ao mesmo tempo reduz suavemente a velocidade conforme a pressão do freio L2,
-        // permitindo dosar a tangência ideal em curvas sem perder totalmente o giro do motor!
-        const trailBrakeRate = (125 + model.braking * 95) * brakeInput * dt;
-        p.speed = Math.max(0, p.speed - trailBrakeRate);
+      const isPowerBraking = isAccelerating && p.isBraking;
+
+      if (isPowerBraking) {
+        // Power Braking estilo Top Gear (Acelerador + Freio simultâneos):
+        // Retenção ainda mais suave (+25%) de velocidade (~6 a 9 km/h por segundo), mantendo o carro no traçado quase como se não estivesse freando
+        const powerBrakeRate = (6 + model.braking * 4.5) * brakeInput * dt;
+        p.speed = Math.max(48, p.speed - powerBrakeRate);
       } else if (isAccelerating) {
         // Cadência de arrancada esportiva progressiva (~6 a 8s para velocidade final)
         const basePower = p.isNitro ? (65 + effectiveAccel * 55) : (24 + effectiveAccel * 26);
@@ -2533,6 +2576,10 @@
       }
 
       p.updateTransmission();
+      if (isPowerBraking && p.speed > 35) {
+        // Mantém o motor na faixa alta de giro e potência durante a tangência da curva
+        p.rpm = Math.max(p.rpm, 5200);
+      }
 
       // Esterçamento Analógico Suave (controla física + troca dos 3 sprites de curva/reta)
       let steerInput = 0;
@@ -2554,14 +2601,23 @@
         if (Math.abs(p.steerAngle) < 0.01) p.steerAngle = 0;
       }
 
+      // Acumulador progressivo e extra-suave de tempo segurando acelerador + freio na curva (sem solavancos ou puxões instantâneos)
+      if (isPowerBraking && Math.abs(playerSeg.curve) > 0.1) {
+        p.powerBrakeHoldTime = Math.min(3.0, (p.powerBrakeHoldTime || 0) + dt);
+      } else {
+        p.powerBrakeHoldTime = Math.max(0, (p.powerBrakeHoldTime || 0) - dt * 2.0);
+      }
+      const powerBrakeProgress = Math.min(1.0, (p.powerBrakeHoldTime || 0) / 2.4);
+
       if (Math.abs(p.steerAngle) > 0.01 && p.speed > 2) {
         const lowSpeedAuthority = Math.min(1, p.speed / 45);
         const highSpeedAuthority = 1.0 - Math.min(0.22, speedRatio * 0.18);
+        // Resposta de esterçamento 100% natural e previsível, sem puxão abrupto no volante
         const steerPower = (2.15 * model.handling + 0.42) * lowSpeedAuthority * highSpeedAuthority;
         p.x += p.steerAngle * steerPower * dt;
 
-        // Leve perda de velocidade por atrito lateral em curvas fortes
-        if (Math.abs(playerSeg.curve) > 1.4 && speedRatio > 0.72) {
+        // Leve perda de velocidade por atrito lateral em curvas fortes (desativada no power braking para não frear duplo)
+        if (Math.abs(playerSeg.curve) > 1.4 && speedRatio > 0.72 && !isPowerBraking) {
           const scrub = Math.abs(p.steerAngle) * (1.15 - model.grip * 0.65) * 22 * dt;
           p.speed = Math.max(40, p.speed - scrub);
         }
@@ -2569,8 +2625,19 @@
 
       // Força Centrífuga progressiva e equilibrada + amortecimento elástico de toque lateral
       if (playerSeg.curve !== 0 && p.speed > 15) {
-        const centrifugal = (playerSeg.curve * (speedRatio * speedRatio) * 0.40) / model.centrifugalResistance;
+        // Ao acionar acelerador + freio, segura o carro firme na tangente sem solavanco.
+        // Quanto mais tempo mantiver o freio acionado, mais suavemente a centrífuga se estabiliza.
+        const centrifugalSuppress = isPowerBraking ? (0.91 - 0.12 * powerBrakeProgress) : 1.0;
+        const centrifugal = ((playerSeg.curve * (speedRatio * speedRatio) * 0.40) / model.centrifugalResistance) * centrifugalSuppress;
         p.x -= centrifugal * dt;
+
+        // Puxada suave e progressiva para o traçado interno da curva (calibrada +25% mais suave para máxima fluidez e naturalidade)
+        if (isPowerBraking && powerBrakeProgress > 0.05) {
+          const curveDir = Math.sign(playerSeg.curve); // +1 curva à direita, -1 curva à esquerda
+          const curveIntensity = Math.min(1.0, Math.abs(playerSeg.curve) / 2.5);
+          const gentleInwardPull = curveDir * (0.082 * powerBrakeProgress * curveIntensity) * dt;
+          p.x += gentleInwardPull;
+        }
       }
       if (Math.abs(p.bumpVelX) > 0.003) {
         p.x += p.bumpVelX * dt;
@@ -2606,16 +2673,21 @@
         this.particlePool.spawn(p.x + (Math.random() - 0.5) * 0.28, -0.12, p.z + 40, 0, -0.05, 0.14, 'rgba(210, 245, 255, 0.45)');
       }
 
-      const isSkidding = (Math.abs(p.steerAngle) > 0.58 && speedRatio > 0.66 && Math.abs(playerSeg.curve) > 0.95) || (isOffroad && p.speed > 80);
+      // Detecção de derrapagem / Power Slide estilo Top Gear
+      const isPowerSliding = isPowerBraking && p.speed > 50 && (Math.abs(p.steerAngle) > 0.16 || Math.abs(playerSeg.curve) > 0.35);
+      const isSkidding = isPowerSliding || (Math.abs(p.steerAngle) > 0.58 && speedRatio > 0.66 && Math.abs(playerSeg.curve) > 0.95) || (isOffroad && p.speed > 80);
+
       if (isSkidding && !isOffroad && this.state === 'RACING') {
         playerSeg.skidX = p.x;
         playerSeg.skidUntil = this.raceTimer + 7.0;
-        if (Math.random() < 0.68) {
-          this.particlePool.spawn(p.x - 0.11, 0.04, p.z, (Math.random() - 0.5) * 0.20, -0.18, 0.22, 'rgba(215, 222, 232, 0.58)');
-          this.particlePool.spawn(p.x + 0.11, 0.04, p.z, (Math.random() - 0.5) * 0.20, -0.18, 0.22, 'rgba(215, 222, 232, 0.58)');
+        if (Math.random() < 0.75) {
+          // Fumaça de borracha nos pneus traseiros (mais intensa durante o power braking)
+          const smokeAlpha = isPowerBraking ? '0.72' : '0.55';
+          this.particlePool.spawn(p.x - 0.11, 0.04, p.z, (Math.random() - 0.5) * 0.22, -0.20, 0.24, `rgba(226, 232, 240, ${smokeAlpha})`);
+          this.particlePool.spawn(p.x + 0.11, 0.04, p.z, (Math.random() - 0.5) * 0.22, -0.20, 0.24, `rgba(226, 232, 240, ${smokeAlpha})`);
         }
       }
-      this.audio.updateEngineRpm(p.rpm, isAccelerating, p.isNitro);
+      this.audio.updateEngineRpm(p.rpm, isAccelerating || isPowerBraking, p.isNitro);
       this.audio.setSkid(isSkidding);
 
       const stepZ = p.speed * 20 * dt;
@@ -3068,6 +3140,86 @@
         }
       }
 
+      // --- FÍSICA DE COLISÃO COM CENÁRIO LATERAL (POSTES, ÁRVORES, PLACAS E OUTDOORS) ---
+      if (p.sceneryCollisionCooldown > 0) {
+        p.sceneryCollisionCooldown -= dt;
+      }
+
+      if (this.track && this.track.segments && !this.finishingRace && (this.state === 'RACING' || this.state === 'COUNTDOWN')) {
+        const totalSegs = this.track.segments.length;
+        const pSegIdx = Math.floor(p.z / SEGMENT_LENGTH) % totalSegs;
+        const checkOffsets = [-1, 0, 1];
+
+        for (let o = 0; o < checkOffsets.length; o++) {
+          const sIdx = (pSegIdx + checkOffsets[o] + totalSegs) % totalSegs;
+          const seg = this.track.segments[sIdx];
+          if (!seg || !seg.scenery) continue;
+
+          const scList = Array.isArray(seg.scenery) ? seg.scenery : [seg.scenery];
+          let hitScenery = false;
+
+          for (let sc of scList) {
+            if (!sc || typeof sc.offset !== 'number') continue;
+
+            const dz = Math.abs(this.shortestDeltaZ(p.z, seg.p1.world.z));
+            if (dz > 52) continue;
+
+            let colRadius = 0.28;
+            if (sc.type === 'billboard' || sc.type === 'building') {
+              colRadius = 0.46;
+            } else if (sc.type === 'streetlamp' || sc.type === 'pole') {
+              colRadius = 0.22;
+            } else if (sc.type.includes('sign')) {
+              colRadius = 0.26;
+            } else if (sc.type.includes('tree') || sc.type.includes('pine') || sc.type.includes('palm') || sc.type === 'bush') {
+              colRadius = 0.32;
+            }
+
+            const dx = p.x - sc.offset;
+            const absDx = Math.abs(dx);
+
+            if (absDx < colRadius) {
+              // COLISÃO SUAVE COM CENÁRIO: EMPURRA O CARRO SUAVEMENTE PARA A DIREÇÃO OPOSTA
+              const overlap = colRadius - absDx;
+              const pushDir = (dx >= 0) ? 1 : -1;
+
+              // Impulso lateral suave (não violento, amortecido organicamente via bumpVelX)
+              p.bumpVelX = pushDir * (0.38 + overlap * 0.28);
+              p.x = Math.max(-2.25, Math.min(2.25, p.x + pushDir * (0.02 + overlap * 0.30)));
+
+              // Perda moderada de velocidade por atrito/raspagem
+              p.speed = Math.max(30, p.speed - 5.0);
+
+              if (p.sceneryCollisionCooldown <= 0) {
+                this.audio.playCrash();
+                p.sceneryCollisionCooldown = 0.24;
+                this.shake = Math.max(this.shake, 1.4);
+              }
+
+              // Efeitos visuais: faíscas metálicas ou lascas/folhagens no ponto de contato
+              const contactX = (p.x + sc.offset) * 0.5;
+              const isFoliage = (sc.type.includes('tree') || sc.type.includes('pine') || sc.type.includes('palm') || sc.type === 'bush');
+              const pCol = isFoliage ? '#15803D' : (this.envCur && this.envCur.night > 0.28 ? '#FFE082' : '#CBD5E1');
+
+              for (let k = 0; k < 6; k++) {
+                this.particlePool.spawn(
+                  contactX, -0.06, p.z,
+                  (Math.random() - 0.5) * 1.3 + pushDir * 0.40,
+                  -Math.random() * 0.70,
+                  0.22 + Math.random() * 0.16,
+                  pCol
+                );
+              }
+
+              hitScenery = true;
+              break;
+            }
+          }
+
+          if (hitScenery) break;
+        }
+      }
+
       this.particlePool.update(dt);
       this.input.clearPulses();
     }
@@ -3157,6 +3309,8 @@
         const inTunnel = (playerSeg && !!playerSeg.tunnel);
         const nightIntensity = inTunnel ? 1.0 : (this.envCur ? (this.envCur.s.night || 0) : 0);
         const isNight = (nightIntensity > 0.28);
+        const isDusk = this.envCur ? ((this.envCur.s.dusk || 0) > 0.22) : false;
+        const isDark = isNight || isDusk || inTunnel || (def && (def.theme === 'NOITE' || def.theme === 'TARDE'));
 
         if (this.finishingRace) {
           // Quando bandeirou e a câmera parou, o carro se afasta pela pista em perspectiva 3D realista
@@ -3190,7 +3344,7 @@
             {
               isNitro: false,
               wheelPhase: this.player.z * 0.035,
-              isNight,
+              isNight: isDark,
               speed: this.player.speed
             }
           );
@@ -3215,7 +3369,7 @@
             {
               isNitro: this.player.isNitro,
               wheelPhase: this.player.z * 0.035,
-              isNight,
+              isNight: isDark,
               speed: this.player.speed
             }
           );
@@ -3237,7 +3391,7 @@
               {
                 isNitro: !!fb.bot.isNitro,
                 wheelPhase: fb.bot.z * 0.035,
-                isNight,
+                isNight: isDark,
                 speed: fb.bot.speed
               }
             );
@@ -4345,6 +4499,8 @@
       const inTunnel = (refSeg && !!refSeg.tunnel);
       const nightIntensity = inTunnel ? 1.0 : (this.envCur ? (this.envCur.s.night || 0) : 0);
       const isNight = nightIntensity > 0.28;
+      const isDusk = this.envCur ? ((this.envCur.s.dusk || 0) > 0.22) : false;
+      const isDark = isNight || isDusk || inTunnel || (def && (def.theme === 'NOITE' || def.theme === 'TARDE'));
       for (let n = DRAW_DISTANCE - 1; n >= 0; n--) {
         const segment = this.track.segments[(baseSegment.index + n) % totalSegs];
         if (segment.p1.camera.z <= CAMERA_DEPTH) continue;
@@ -4417,7 +4573,7 @@
                   {
                     isNitro: !!bot.isNitro,
                     wheelPhase: bot.z * 0.035,
-                    isNight,
+                    isNight: isDark,
                     speed: bot.speed
                   }
                 );
@@ -4860,8 +5016,8 @@
       const sY = segment.p1.screen.y;
       const size = 95 * scale * (REF_WIDTH / 2);
 
-      if (size < 3) return;
-      if (sX < -size * 1.5 || sX > INTERNAL_WIDTH + size * 1.5) return;
+      if (size < 0.22) return;
+      if (sX < -size * 6.0 || sX > INTERNAL_WIDTH + size * 6.0) return;
 
       // Estado do clima e iluminação do circuito
       const E = this.envCur;
@@ -4876,7 +5032,7 @@
       // Sombra projetada no solo (ajustada para dia/noite)
       ctx.fillStyle = isNight ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.28)';
       ctx.beginPath();
-      ctx.ellipse(0, 0, size * 0.34, Math.max(1.2, size * 0.08), 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, size * 0.8, Math.max(1.5, size * 0.20), 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Renderiza monumentos e pontos turísticos das capitais brasileiras
@@ -4940,58 +5096,74 @@
           ctx.fillRect(pw * 0.06, py + ph * 0.24, pw * 0.32, ph * 0.38);
         }
       } else if (scenery.type === 'palm') {
-        // Palmeira tropical costeira (estilo autêntico Top Gear com reação de iluminação)
+        // Palmeira tropical costeira alta estilo Top Gear / Arcade (proporção da imagem de referência)
         const toward = scenery.offset < 0 ? 1 : -1;
-        const trunkCol = isNight ? '#1F140E' : (isDusk ? '#331B12' : '#3E2419');
-        const trunkLight = isNight ? '#2E1E16' : (isDusk ? '#4A2B1D' : '#5E3825');
+        const trunkCol = isNight ? '#1F140E' : (isDusk ? '#331B12' : '#4E342E');
+        const trunkLight = isNight ? '#2E1E16' : (isDusk ? '#4A2B1D' : '#6D4C41');
+
+        // Tronco alto e esguio curvado suavemente
+        const trunkH = size * 10.5;
+        const crownX = toward * size * 1.4;
+        const crownY = -trunkH;
+
         ctx.strokeStyle = trunkCol;
-        ctx.lineWidth = Math.max(1.8, size * 0.08);
+        ctx.lineWidth = Math.max(2.4, size * 0.32);
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.quadraticCurveTo(toward * size * 0.14, -size * 0.48, toward * size * 0.09, -size * 0.90);
+        ctx.quadraticCurveTo(toward * size * 0.8, -trunkH * 0.52, crownX, crownY);
         ctx.stroke();
 
         ctx.strokeStyle = trunkLight;
-        ctx.lineWidth = Math.max(1.0, size * 0.045);
+        ctx.lineWidth = Math.max(1.2, size * 0.14);
         ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.quadraticCurveTo(toward * size * 0.14, -size * 0.48, toward * size * 0.09, -size * 0.90);
+        ctx.moveTo(toward * size * 0.05, 0);
+        ctx.quadraticCurveTo(toward * size * 0.75, -trunkH * 0.52, crownX - toward * size * 0.05, crownY);
         ctx.stroke();
 
         // Anéis da casca do tronco
-        for (let k = 1; k < 6; k++) {
-          const frac = k / 6;
-          const kx = toward * size * 0.12 * Math.sin(frac * Math.PI);
-          const ky = -size * 0.88 * frac;
+        for (let k = 1; k < 9; k++) {
+          const frac = k / 9;
+          const kx = toward * size * 0.7 * Math.sin(frac * Math.PI);
+          const ky = -trunkH * frac;
           ctx.strokeStyle = isNight ? '#140D09' : '#27160F';
-          ctx.lineWidth = Math.max(0.8, size * 0.02);
+          ctx.lineWidth = Math.max(1.0, size * 0.06);
           ctx.beginPath();
-          ctx.moveTo(kx - size * 0.035, ky);
-          ctx.lineTo(kx + size * 0.035, ky);
+          ctx.moveTo(kx - size * 0.16, ky);
+          ctx.lineTo(kx + size * 0.16, ky);
           ctx.stroke();
         }
 
-        // Folhas da copa em leque exuberante
-        const crownX = toward * size * 0.09;
-        const crownY = -size * 0.90;
+        // Copa exuberante de palmas em leque (multi-camadas)
         const frondCols = isNight 
           ? ['#0A1C12', '#0E291B', '#133925', '#1B4A31']
           : (isDusk 
             ? ['#1C331B', '#274724', '#385C2E', '#4B7337']
-            : ['#0F3819', '#1A5929', '#27823E', '#3AB459']);
+            : ['#1B5E20', '#2E7D32', '#388E3C', '#4CAF50']);
 
-        for (let f = 0; f < 8; f++) {
-          const ang = (f / 7) * Math.PI * 1.1 - 0.15;
-          const fx = crownX + Math.cos(ang) * size * 0.44;
-          const fy = crownY - Math.sin(ang) * size * 0.28 + Math.abs(Math.cos(ang)) * size * 0.16;
+        for (let f = 0; f < 10; f++) {
+          const ang = (f / 9) * Math.PI * 1.15 - 0.15;
+          const fx = crownX + Math.cos(ang) * size * 3.4;
+          const fy = crownY - Math.sin(ang) * size * 1.8 + Math.abs(Math.cos(ang)) * size * 1.2;
           ctx.strokeStyle = frondCols[f % 4];
-          ctx.lineWidth = Math.max(1.2, size * 0.04);
+          ctx.lineWidth = Math.max(1.6, size * 0.18);
           ctx.beginPath();
           ctx.moveTo(crownX, crownY);
-          ctx.quadraticCurveTo((crownX + fx) * 0.5, crownY - size * 0.20, fx, fy);
+          ctx.quadraticCurveTo((crownX + fx) * 0.5, crownY - size * 1.4, fx, fy);
           ctx.stroke();
         }
+
+        // Arbusto tropical denso na base do tronco (como no print)
+        const b1 = isNight ? '#08170D' : (isDusk ? '#162C17' : '#1B5E20');
+        const b2 = isNight ? '#0F2617' : (isDusk ? '#204221' : '#2E7D32');
+        ctx.fillStyle = b1;
+        ctx.beginPath();
+        ctx.ellipse(0, -size * 0.45, size * 1.4, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = b2;
+        ctx.beginPath();
+        ctx.ellipse(toward * size * 0.35, -size * 0.65, size * 1.0, size * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
       } else if (scenery.type === 'pine' || (scenery.type === 'tree' && def && def.theme === 'SERRA')) {
         // Pinheiro Araucária da Serra Catarinense (adaptável a dia, tarde, noite e neve)
         const trunkCol = isNight ? '#1B110B' : (isDusk ? '#2C1B12' : '#3E2419');
@@ -5052,10 +5224,10 @@
         ctx.ellipse(0, -size * 0.22, size * 0.20, size * 0.14, 0, 0, Math.PI * 2);
         ctx.fill();
       } else if (scenery.type === 'tree') {
-        // Árvore frondosa em camadas com iluminação solar, crepuscular ou noturna
+        // Árvore frondosa alta em camadas estilo Top Gear / Arcade (proporção do print)
         const trunkCol = isNight ? '#251A16' : (isDusk ? '#3B2723' : '#4E342E');
         ctx.fillStyle = trunkCol;
-        ctx.fillRect(-size * 0.075, -size * 0.62, size * 0.15, size * 0.62);
+        ctx.fillRect(-size * 0.22, -size * 7.5, size * 0.44, size * 7.5);
 
         const c1 = isNight ? '#0B1F14' : (isDusk ? '#193B23' : '#145A32');
         const c2 = isNight ? '#112B1C' : (isDusk ? '#254F30' : '#1E8449');
@@ -5063,73 +5235,90 @@
 
         ctx.fillStyle = c1;
         ctx.beginPath();
-        ctx.arc(0, -size * 0.66, size * 0.36, 0, Math.PI * 2);
+        ctx.arc(0, -size * 7.2, size * 3.4, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = c2;
         ctx.beginPath();
-        ctx.arc(-size * 0.14, -size * 0.72, size * 0.26, 0, Math.PI * 2);
-        ctx.arc(size * 0.14, -size * 0.70, size * 0.25, 0, Math.PI * 2);
+        ctx.arc(-size * 1.4, -size * 7.8, size * 2.6, 0, Math.PI * 2);
+        ctx.arc(size * 1.4, -size * 7.6, size * 2.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = c3;
         ctx.beginPath();
-        ctx.arc(-size * 0.05, -size * 0.86, size * 0.22, 0, Math.PI * 2);
+        ctx.arc(-size * 0.4, -size * 9.2, size * 2.2, 0, Math.PI * 2);
         ctx.fill();
 
         // Acúmulo de neve no topo da copa
         if (isSnow) {
           ctx.fillStyle = isNight ? '#CBD5E1' : '#FFFFFF';
           ctx.beginPath();
-          ctx.ellipse(0, -size * 0.96, size * 0.22, size * 0.08, 0, 0, Math.PI * 2);
-          ctx.ellipse(-size * 0.14, -size * 0.86, size * 0.16, size * 0.06, 0, 0, Math.PI * 2);
-          ctx.ellipse(size * 0.14, -size * 0.84, size * 0.16, size * 0.06, 0, 0, Math.PI * 2);
+          ctx.ellipse(0, -size * 10.2, size * 2.2, size * 0.8, 0, 0, Math.PI * 2);
           ctx.fill();
         }
       } else if (scenery.type === 'sign_right' || scenery.type === 'sign_left') {
-        // Placas refletivas de sinalização de curva estilo Top Gear
-        const postCol = isNight ? '#2A3441' : '#555555';
-        ctx.fillStyle = postCol;
-        ctx.fillRect(-size * 0.16, -size * 0.45, size * 0.05, size * 0.45);
-        ctx.fillRect(size * 0.11, -size * 0.45, size * 0.05, size * 0.45);
+        // Placa indicativa de curva estilo Top Gear: proporção compacta e 1 único ponteiro direcional
+        const sw = size * 1.5;
+        const sh = size * 1.15;
+        const sy = -size * 1.9;
 
-        // Moldura externa da placa
-        ctx.fillStyle = isNight ? '#080C14' : '#111111';
-        ctx.fillRect(-size * 0.29, -size * 0.79, size * 0.58, size * 0.39);
+        // Haste de sustentação única centralizada
+        const postCol = isNight ? '#1E2530' : '#475569';
+        ctx.fillStyle = postCol;
+        ctx.fillRect(-size * 0.05, sy + sh, size * 0.10, -sy - sh);
+
+        // Moldura externa escura
+        ctx.fillStyle = isNight ? '#080C14' : '#111827';
+        ctx.fillRect(-sw * 0.5, sy, sw, sh);
+
+        // Painel interno da placa
+        const border = Math.max(0.6, size * 0.08);
+        const iw = sw - border * 2;
+        const ih = sh - border * 2;
+        const ix = -sw * 0.5 + border;
+        const iy = sy + border;
 
         if (isNight) {
-          // À NOITE: ACABAMENTO RETRORREFLETIVO TOP GEAR COM GLOW
-          ctx.fillStyle = '#FFD54F';
-          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
-
-          // Borda fosforescente
-          ctx.strokeStyle = '#FFF9C4';
-          ctx.lineWidth = Math.max(0.8, size * 0.015);
-          ctx.strokeRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
-
-          // Setas iluminadas em LED de alto brilho com foco na curva
           ctx.save();
           ctx.shadowColor = '#FFEA00';
-          ctx.shadowBlur = Math.max(3, size * 0.08);
-          ctx.fillStyle = '#111111';
-          ctx.font = `900 ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
-          ctx.textAlign = 'center';
-          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
-          ctx.restore();
+          ctx.shadowBlur = Math.max(1.5, size * 0.35);
+          ctx.fillStyle = '#FFD54F';
+          ctx.fillRect(ix, iy, iw, ih);
+
+          // Borda retrorrefletiva
+          ctx.strokeStyle = '#FFF9C4';
+          ctx.lineWidth = Math.max(0.5, size * 0.04);
+          ctx.strokeRect(ix, iy, iw, ih);
         } else if (isDusk) {
-          // PÔR DO SOL: Tom âmbar crepuscular
           ctx.fillStyle = '#FFA000';
-          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
-          ctx.fillStyle = '#111111';
-          ctx.font = `bold ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
-          ctx.textAlign = 'center';
-          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+          ctx.fillRect(ix, iy, iw, ih);
         } else {
-          // DIA: Placa amarela padrão nítida
           ctx.fillStyle = '#FFC107';
-          ctx.fillRect(-size * 0.26, -size * 0.76, size * 0.52, size * 0.33);
-          ctx.fillStyle = '#111111';
-          ctx.font = `bold ${Math.max(6, Math.floor(size * 0.24))}px monospace`;
-          ctx.textAlign = 'center';
-          ctx.fillText(scenery.type === 'sign_right' ? '▶▶' : '◀◀', 0, -size * 0.51);
+          ctx.fillRect(ix, iy, iw, ih);
+        }
+
+        // 1 único ponteiro indicando a direção (▶ ou ◀) em arte vetorial geométrica nítida
+        const aw = iw * 0.50;
+        const ah = ih * 0.60;
+        const cx = ix + iw * 0.5;
+        const cy = iy + ih * 0.5;
+
+        ctx.fillStyle = '#111111';
+        ctx.beginPath();
+        if (scenery.type === 'sign_right') {
+          // Ponteiro único apontando para a direita ▶
+          ctx.moveTo(cx - aw * 0.5, cy - ah * 0.5);
+          ctx.lineTo(cx + aw * 0.5, cy);
+          ctx.lineTo(cx - aw * 0.5, cy + ah * 0.5);
+        } else {
+          // Ponteiro único apontando para a esquerda ◀
+          ctx.moveTo(cx + aw * 0.5, cy - ah * 0.5);
+          ctx.lineTo(cx - aw * 0.5, cy);
+          ctx.lineTo(cx + aw * 0.5, cy + ah * 0.5);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        if (isNight) {
+          ctx.restore();
         }
       } else if (scenery.type === 'grandstand') {
         // Arquibancada coberta de autódromo com torcida
@@ -5152,187 +5341,138 @@
         ctx.fillRect(-size * 0.68, -size * 0.74, size * 1.36, size * 0.09);
         ctx.fillStyle = '#E74C3C';
         ctx.fillRect(-size * 0.68, -size * 0.66, size * 1.36, size * 0.035);
-      } else if (scenery.type === 'streetlamp') {
-        // Poste metálico arqueado com iluminação dinâmica dia/tarde/noite
+      } else if (scenery.type === 'streetlamp' || scenery.type === 'pole') {
+        // Poste metálico moderno de iluminação pública alto (Padrão exato da imagem de referência)
         const towardRoad = scenery.offset < 0 ? 1 : -1;
-        const poleCol = isNight ? '#3A4554' : (isDusk ? '#4B5868' : '#5E6B7A');
+        const poleCol = isNight ? '#475569' : (isDusk ? '#64748B' : '#94A3B8');
+        const poleHighlight = isNight ? '#64748B' : (isDusk ? '#CBD5E1' : '#F1F5F9');
+        const sleeveCol = isNight ? '#334155' : (isDusk ? '#475569' : '#CBD5E1');
+
+        const poleH = size * 14.5;
+        const mastH = size * 11.2;
+        const sleeveW = size * 0.44;
+        const sleeveH = size * 2.4;
+
+        // 1. Manga cilíndrica de ancoragem alargada na base (conforme o print)
+        ctx.fillStyle = sleeveCol;
+        ctx.fillRect(-sleeveW * 0.5, -sleeveH, sleeveW, sleeveH);
+        ctx.fillStyle = poleHighlight;
+        ctx.fillRect(-sleeveW * 0.5, -sleeveH, sleeveW * 0.35, sleeveH);
+        // Anel de transição do topo da manga
+        ctx.fillStyle = isNight ? '#1E293B' : '#64748B';
+        ctx.fillRect(-sleeveW * 0.58, -sleeveH - size * 0.18, sleeveW * 1.16, size * 0.18);
+
+        // 2. Mastro tubular prateado esguio e alto
         ctx.strokeStyle = poleCol;
-        ctx.lineWidth = Math.max(1.2, size * 0.045);
+        ctx.lineWidth = Math.max(2.0, size * 0.22);
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(0, -size * 0.72);
-        ctx.quadraticCurveTo(0, -size * 0.94, towardRoad * size * 0.26, -size * 0.94);
+        ctx.moveTo(0, -sleeveH);
+        ctx.lineTo(0, -mastH);
+        // Curva suave de pescoço de ganso projetando sobre a pista
+        const lampX = towardRoad * size * 3.4;
+        const lampY = -poleH;
+        ctx.quadraticCurveTo(0, lampY, lampX, lampY);
         ctx.stroke();
 
-        ctx.strokeStyle = isNight ? '#556475' : '#9AAEC4';
-        ctx.lineWidth = Math.max(0.8, size * 0.02);
+        // Chanfro metálico de reflexo de luz tubular
+        ctx.strokeStyle = poleHighlight;
+        ctx.lineWidth = Math.max(0.9, size * 0.08);
         ctx.beginPath();
-        ctx.moveTo(towardRoad * 0.5, 0);
-        ctx.lineTo(towardRoad * 0.5, -size * 0.72);
-        ctx.quadraticCurveTo(towardRoad * 0.5, -size * 0.92, towardRoad * size * 0.25, -size * 0.92);
+        ctx.moveTo(towardRoad * 0.5, -sleeveH);
+        ctx.lineTo(towardRoad * 0.5, -mastH);
+        ctx.quadraticCurveTo(towardRoad * 0.5, lampY + size * 0.10, lampX, lampY + size * 0.10);
         ctx.stroke();
 
-        const lampX = towardRoad * size * 0.26;
-        const lampY = -size * 0.94;
-
-        // Carcaça da luminária
-        ctx.fillStyle = isNight ? '#1E2530' : '#2D3748';
-        ctx.fillRect(lampX - size * 0.05, lampY - size * 0.03, size * 0.10, size * 0.04);
+        // 3. Cabeçote retangular moderno da luminária
+        const headW = size * 1.6;
+        const headH = size * 0.42;
+        ctx.fillStyle = isNight ? '#0F172A' : '#1E293B';
+        ctx.fillRect(lampX - headW * 0.5, lampY - headH * 0.5, headW, headH);
+        ctx.fillStyle = isNight ? '#334155' : '#64748B';
+        ctx.fillRect(lampX - headW * 0.5, lampY - headH * 0.5, headW, headH * 0.28);
 
         if (isNight) {
-          // NOITE: LÂMPADA ACESA BRILHANTE COM HALO E CONE DE LUZ NO SOLO
-          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.015, 1, lampX, lampY + size * 0.015, Math.max(4, size * 0.16));
-          bulbGlow.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
-          bulbGlow.addColorStop(0.35, 'rgba(255, 245, 157, 0.70)');
-          bulbGlow.addColorStop(1, 'rgba(255, 235, 59, 0)');
+          // NOITE: LÂMPADA MODERADA NO TOPO (BRILHO SUAVE E DISCRETO) + FOCO NO ASFALTO MANTIDO
+          const bulbR = Math.max(1.8, size * 0.70);
+          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.20, 0.4, lampX, lampY + size * 0.20, bulbR);
+          bulbGlow.addColorStop(0, 'rgba(255, 255, 240, 0.70)');
+          bulbGlow.addColorStop(0.40, 'rgba(255, 238, 120, 0.30)');
+          bulbGlow.addColorStop(1, 'rgba(255, 215, 64, 0)');
           ctx.fillStyle = bulbGlow;
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.015, Math.max(4, size * 0.16), 0, Math.PI * 2);
+          ctx.arc(lampX, lampY + size * 0.20, bulbR, 0, Math.PI * 2);
           ctx.fill();
 
-          ctx.fillStyle = '#FFFFFF';
+          ctx.fillStyle = '#FFFDE7';
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.8, size * 0.035), 0, Math.PI * 2);
+          ctx.arc(lampX, lampY + size * 0.20, Math.max(1.0, size * 0.20), 0, Math.PI * 2);
           ctx.fill();
 
-          // Feixe cônico volumétrico descendo sobre a pista
+          // Feixe cônico volumétrico translúcido iluminando a pista (como no print)
           const coneGrad = ctx.createLinearGradient(lampX, lampY, lampX, 0);
-          coneGrad.addColorStop(0, 'rgba(255, 245, 157, 0.48)');
-          coneGrad.addColorStop(0.35, 'rgba(255, 235, 110, 0.22)');
-          coneGrad.addColorStop(1, 'rgba(255, 215, 64, 0.03)');
+          coneGrad.addColorStop(0, 'rgba(255, 245, 157, 0.46)');
+          coneGrad.addColorStop(0.40, 'rgba(255, 235, 110, 0.22)');
+          coneGrad.addColorStop(1, 'rgba(255, 215, 64, 0.02)');
           ctx.fillStyle = coneGrad;
           ctx.beginPath();
-          ctx.moveTo(lampX - size * 0.04, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.04, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.42, 0);
-          ctx.lineTo(lampX - size * 0.42, 0);
+          ctx.moveTo(lampX - size * 0.6, lampY + size * 0.35);
+          ctx.lineTo(lampX + size * 0.6, lampY + size * 0.35);
+          ctx.lineTo(lampX + size * 3.8, 0);
+          ctx.lineTo(lampX - size * 3.8, 0);
           ctx.closePath();
           ctx.fill();
 
-          // Poça de luz quente no solo
-          ctx.fillStyle = 'rgba(255, 235, 110, 0.22)';
+          // Poça elíptica quente de luz brilhante no asfalto (como no print)
+          ctx.fillStyle = 'rgba(255, 235, 110, 0.32)';
           ctx.beginPath();
-          ctx.ellipse(lampX, 0, size * 0.38, Math.max(1.5, size * 0.09), 0, 0, Math.PI * 2);
+          ctx.ellipse(lampX, 0, size * 4.2, Math.max(2.5, size * 0.95), 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = 'rgba(255, 255, 220, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(lampX, 0, size * 2.6, Math.max(1.8, size * 0.60), 0, 0, Math.PI * 2);
           ctx.fill();
         } else if (isDusk) {
-          // TARDE: LÂMPADA ACENDENDO COM TOM ÂMBAR
-          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.015, 1, lampX, lampY + size * 0.015, Math.max(3, size * 0.10));
-          bulbGlow.addColorStop(0, 'rgba(255, 224, 130, 0.70)');
-          bulbGlow.addColorStop(1, 'rgba(255, 183, 77, 0)');
+          // TARDE / CREPÚSCULO (EXATAMENTE O CLIMA DO PRINT DE REFERÊNCIA)
+          const bulbGlow = ctx.createRadialGradient(lampX, lampY + size * 0.22, 1, lampX, lampY + size * 0.22, Math.max(6, size * 1.8));
+          bulbGlow.addColorStop(0, 'rgba(255, 238, 170, 0.95)');
+          bulbGlow.addColorStop(0.45, 'rgba(255, 193, 7, 0.65)');
+          bulbGlow.addColorStop(1, 'rgba(255, 160, 0, 0)');
           ctx.fillStyle = bulbGlow;
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.015, Math.max(3, size * 0.10), 0, Math.PI * 2);
+          ctx.arc(lampX, lampY + size * 0.22, Math.max(6, size * 1.8), 0, Math.PI * 2);
           ctx.fill();
 
-          ctx.fillStyle = '#FFE082';
+          ctx.fillStyle = '#FFF8E1';
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.5, size * 0.028), 0, Math.PI * 2);
+          ctx.arc(lampX, lampY + size * 0.22, Math.max(2.2, size * 0.30), 0, Math.PI * 2);
           ctx.fill();
 
-          // Feixe sutil no crepúsculo
+          // Cone crepuscular
           const coneGrad = ctx.createLinearGradient(lampX, lampY, lampX, 0);
-          coneGrad.addColorStop(0, 'rgba(255, 193, 7, 0.20)');
-          coneGrad.addColorStop(1, 'rgba(255, 160, 0, 0)');
+          coneGrad.addColorStop(0, 'rgba(255, 213, 79, 0.38)');
+          coneGrad.addColorStop(0.50, 'rgba(255, 183, 77, 0.18)');
+          coneGrad.addColorStop(1, 'rgba(255, 152, 0, 0.02)');
           ctx.fillStyle = coneGrad;
           ctx.beginPath();
-          ctx.moveTo(lampX - size * 0.03, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.03, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.30, 0);
-          ctx.lineTo(lampX - size * 0.30, 0);
+          ctx.moveTo(lampX - size * 0.5, lampY + size * 0.35);
+          ctx.lineTo(lampX + size * 0.5, lampY + size * 0.35);
+          ctx.lineTo(lampX + size * 3.4, 0);
+          ctx.lineTo(lampX - size * 3.4, 0);
           ctx.closePath();
           ctx.fill();
-        } else {
-          // DIA: LÂMPADA TOTALMENTE APAGADA (SEM CONE DE LUZ)
-          ctx.fillStyle = '#B0BEC5';
+
+          // Poça quente dourada no asfalto
+          ctx.fillStyle = 'rgba(255, 202, 40, 0.28)';
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.015, Math.max(1.2, size * 0.024), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (scenery.type === 'pole') {
-        // Poste rústico de fiação elétrica estilo Top Gear clássico
-        const towardRoad = scenery.offset < 0 ? 1 : -1;
-        const woodCol = isNight ? '#1E1714' : (isDusk ? '#3E2A20' : '#5D4037');
-        const woodLight = isNight ? '#2E221D' : (isDusk ? '#53382C' : '#795548');
-
-        // Mastro vertical
-        ctx.fillStyle = woodCol;
-        ctx.fillRect(-size * 0.035, -size * 0.92, size * 0.07, size * 0.92);
-        ctx.fillStyle = woodLight;
-        ctx.fillRect(-size * 0.015, -size * 0.92, size * 0.03, size * 0.92);
-
-        // Cruzeta horizontal
-        const crossY = -size * 0.86;
-        ctx.fillStyle = woodCol;
-        ctx.fillRect(-size * 0.24, crossY, size * 0.48, size * 0.05);
-
-        // Isoladores de porcelana
-        const isoCol = isNight ? '#94A3B8' : '#F1F5F9';
-        ctx.fillStyle = isoCol;
-        ctx.fillRect(-size * 0.20, crossY - size * 0.03, size * 0.03, size * 0.03);
-        ctx.fillRect(size * 0.17, crossY - size * 0.03, size * 0.03, size * 0.03);
-        ctx.fillRect(-size * 0.015, -size * 0.95, size * 0.03, size * 0.03);
-
-        // Fiação elétrica estendida
-        ctx.strokeStyle = isNight ? '#0F172A' : '#334155';
-        ctx.lineWidth = Math.max(0.6, size * 0.01);
-        ctx.beginPath();
-        ctx.moveTo(-size * 0.35, crossY - size * 0.01);
-        ctx.lineTo(-size * 0.20, crossY - size * 0.02);
-        ctx.lineTo(size * 0.17, crossY - size * 0.02);
-        ctx.lineTo(size * 0.35, crossY - size * 0.01);
-        ctx.stroke();
-
-        // Luminária rural voltada para a pista
-        const lampX = towardRoad * size * 0.16;
-        const lampY = crossY + size * 0.06;
-        ctx.strokeStyle = isNight ? '#475569' : '#64748B';
-        ctx.lineWidth = Math.max(0.8, size * 0.018);
-        ctx.beginPath();
-        ctx.moveTo(0, crossY);
-        ctx.lineTo(lampX, lampY);
-        ctx.stroke();
-
-        ctx.fillStyle = isNight ? '#1E293B' : '#475569';
-        ctx.fillRect(lampX - size * 0.04, lampY, size * 0.08, size * 0.02);
-
-        if (isNight) {
-          // Lâmpada de vapor de sódio acesa à noite
-          ctx.fillStyle = '#FFE082';
-          ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.5, size * 0.028), 0, Math.PI * 2);
-          ctx.fill();
-
-          const rGlow = ctx.createRadialGradient(lampX, lampY + size * 0.02, 1, lampX, lampY + size * 0.02, size * 0.12);
-          rGlow.addColorStop(0, 'rgba(255, 235, 59, 0.80)');
-          rGlow.addColorStop(1, 'rgba(255, 193, 7, 0)');
-          ctx.fillStyle = rGlow;
-          ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.02, size * 0.12, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Feixe suave cônico
-          const cone = ctx.createLinearGradient(lampX, lampY, lampX, 0);
-          cone.addColorStop(0, 'rgba(255, 224, 130, 0.35)');
-          cone.addColorStop(1, 'rgba(255, 193, 7, 0.02)');
-          ctx.fillStyle = cone;
-          ctx.beginPath();
-          ctx.moveTo(lampX - size * 0.03, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.03, lampY + size * 0.02);
-          ctx.lineTo(lampX + size * 0.32, 0);
-          ctx.lineTo(lampX - size * 0.32, 0);
-          ctx.closePath();
-          ctx.fill();
-        } else if (isDusk) {
-          ctx.fillStyle = '#FFB74D';
-          ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.2, size * 0.02), 0, Math.PI * 2);
+          ctx.ellipse(lampX, 0, size * 3.8, Math.max(2.2, size * 0.85), 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          // Dia: lâmpada desligada
-          ctx.fillStyle = '#94A3B8';
+          // DIA: Lâmpada desligada
+          ctx.fillStyle = '#CBD5E1';
           ctx.beginPath();
-          ctx.arc(lampX, lampY + size * 0.02, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
+          ctx.arc(lampX, lampY + size * 0.22, Math.max(1.8, size * 0.25), 0, Math.PI * 2);
           ctx.fill();
         }
       } else if (scenery.type === 'building') {
@@ -5364,132 +5504,148 @@
           }
         }
       } else if (scenery.type === 'billboard') {
-        // Outdoors retrô com refletores superiores que acendem à noite (estilo Top Gear clássico!)
+        // Outdoors retrô com suporte metálico duplo (Padrão da imagem de referência)
         const billIdx = Math.abs(segment.index) % 6;
-        const bw = size * 0.95;
-        const bh = size * 0.48;
-        const by = -size * 0.88;
+        const bw = size * 7.5;
+        const bh = size * 3.8;
+        const by = -size * 6.0;
 
-        // Suportes metálicos duplos e travessa
-        ctx.fillStyle = isNight ? '#1E2530' : '#2D3748';
-        ctx.fillRect(-bw * 0.32, by + bh, Math.max(1, size * 0.05), -by - bh);
-        ctx.fillRect(bw * 0.32 - Math.max(1, size * 0.05), by + bh, Math.max(1, size * 0.05), -by - bh);
-        ctx.strokeStyle = isNight ? '#334155' : '#4A5568';
-        ctx.lineWidth = Math.max(0.8, size * 0.015);
-        ctx.beginPath();
-        ctx.moveTo(-bw * 0.30, by + bh);
-        ctx.lineTo(bw * 0.30, 0);
-        ctx.moveTo(bw * 0.30, by + bh);
-        ctx.lineTo(-bw * 0.30, 0);
-        ctx.stroke();
+        // Pés metálicos duplos de sustentação fincados no solo (como no print)
+        const legW = Math.max(1.6, size * 0.18);
+        const legX1 = -bw * 0.34;
+        const legX2 = bw * 0.34;
+        const legCol = isNight ? '#1E2530' : '#475569';
+        const legLight = isNight ? '#334155' : '#94A3B8';
 
-        ctx.fillStyle = isNight ? '#0A0F1A' : '#111622';
+        ctx.fillStyle = legCol;
+        ctx.fillRect(legX1 - legW * 0.5, by + bh, legW, -by - bh);
+        ctx.fillRect(legX2 - legW * 0.5, by + bh, legW, -by - bh);
+        ctx.fillStyle = legLight;
+        ctx.fillRect(legX1 - legW * 0.5, by + bh, legW * 0.4, -by - bh);
+        ctx.fillRect(legX2 - legW * 0.5, by + bh, legW * 0.4, -by - bh);
+
+        // Moldura externa da placa (Borda 16-bit com relevo)
+        ctx.fillStyle = isNight ? '#0A0F1A' : '#0F172A';
         ctx.fillRect(-bw * 0.5, by, bw, bh);
         ctx.strokeStyle = isNight ? '#475569' : '#E2E8F0';
-        ctx.lineWidth = Math.max(0.8, size * 0.015);
+        ctx.lineWidth = Math.max(1.2, size * 0.14);
         ctx.strokeRect(-bw * 0.5, by, bw, bh);
 
-        const pad = size * 0.025;
+        const pad = size * 0.20;
         const pw = bw - pad * 2;
         const ph = bh - pad * 2;
         const px = -bw * 0.5 + pad;
         const py = by + pad;
 
-        const isBrasil = (!def || def.id === 'brasil');
-        const isSerra = (def && def.id === 'serra');
+        const BRAZIL_STATES = [
+          'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+          'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+          'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+        ];
+        const stateCode = (def && def.stateCode && BRAZIL_STATES.includes(def.stateCode)) ? def.stateCode : null;
 
-        if (isBrasil) {
-          if (billIdx === 0 || billIdx === 3) {
-            // "FICII" com arco-íris retrô
-            ctx.fillStyle = isNight ? '#0F1A2E' : '#16233B';
-            ctx.fillRect(px, py, pw, ph);
-            const rCols = ['#E65100', '#F57C00', '#FFB300', '#00ACC1', '#1E88E5'];
-            for (let r = 0; r < rCols.length; r++) {
-              ctx.fillStyle = rCols[r];
-              ctx.beginPath();
-              ctx.moveTo(px, py + ph * 0.45 + r * (ph * 0.10));
-              ctx.quadraticCurveTo(px + pw * 0.5, py + ph * 0.35 + r * (ph * 0.10), px + pw * 0.72, py + ph);
-              ctx.lineTo(px + pw * 0.62, py + ph);
-              ctx.quadraticCurveTo(px + pw * 0.45, py + ph * 0.40 + r * (ph * 0.10), px, py + ph * 0.52 + r * (ph * 0.10));
-              ctx.fill();
-            }
-            if (size >= 24) {
-              ctx.fillStyle = isNight ? '#FFFFFF' : '#F8FAFC';
-              ctx.font = `900 ${Math.max(6, Math.floor(size * 0.19))}px sans-serif`;
-              ctx.textAlign = 'left';
-              ctx.fillText('FICII', px + pw * 0.08, py + ph * 0.48);
-            }
-            ctx.fillStyle = isNight ? '#FFE082' : '#FFD54F';
-            ctx.beginPath();
-            ctx.arc(px + pw * 0.82, py + ph * 0.55, ph * 0.28, 0, Math.PI * 2);
-            ctx.fill();
-          } else if (billIdx === 1 || billIdx === 4) {
-            // "CHAMPION" vermelho clássico
-            ctx.fillStyle = isNight ? '#7F1D1D' : '#B71C1C';
-            ctx.fillRect(px, py, pw, ph);
-            ctx.fillStyle = '#FFE082';
-            ctx.fillRect(px, py + ph * 0.74, pw, ph * 0.14);
-            if (size >= 24) {
-              ctx.fillStyle = '#FFF';
-              ctx.font = `bold ${Math.max(6, Math.floor(size * 0.16))}px monospace`;
-              ctx.textAlign = 'center';
-              ctx.fillText('CHAMPION', 0, py + ph * 0.54);
-            }
-          } else {
-            // "CART" verde/amarelo
-            ctx.fillStyle = isNight ? '#14461B' : '#1B5E20';
-            ctx.fillRect(px, py, pw, ph);
-            ctx.fillStyle = '#FDD835';
-            ctx.fillRect(px + pw * 0.05, py + ph * 0.16, pw * 0.90, ph * 0.10);
-            if (size >= 24) {
-              ctx.fillStyle = '#FFF';
-              ctx.font = `bold ${Math.max(6, Math.floor(size * 0.20))}px monospace`;
-              ctx.textAlign = 'center';
-              ctx.fillText('CART', 0, py + ph * 0.65);
-            }
-          }
-        } else if (isSerra) {
-          if (billIdx % 2 === 0) {
-            // "SERRA 4X4" laranja montanha
-            ctx.fillStyle = isNight ? '#9A3412' : '#E65100';
-            ctx.fillRect(px, py, pw, ph);
-            if (size >= 24) {
-              ctx.fillStyle = '#FFF';
-              ctx.font = `bold ${Math.max(6, Math.floor(size * 0.18))}px sans-serif`;
-              ctx.textAlign = 'center';
-              ctx.fillText('SERRA 4X4', 0, py + ph * 0.58);
-            }
-          } else {
-            // "ALPINE RALLY" verde escuro
-            ctx.fillStyle = isNight ? '#0E2317' : '#1A3826';
-            ctx.fillRect(px, py, pw, ph);
-            ctx.fillStyle = '#F59E0B';
-            ctx.fillRect(px, py + ph * 0.78, pw, ph * 0.12);
-            if (size >= 24) {
-              ctx.fillStyle = '#FFF';
-              ctx.font = `bold ${Math.max(6, Math.floor(size * 0.17))}px monospace`;
-              ctx.textAlign = 'center';
-              ctx.fillText('RALLY CUP', 0, py + ph * 0.56);
-            }
-          }
+        if (stateCode) {
+          // Bandeira autêntica do estado da pista no outdoor (sem texto LH44)
+          this.renderStateFlag(ctx, stateCode, px, py, pw, ph, isNight);
         } else {
-          // Metrópole
-          ctx.fillStyle = (billIdx % 2 === 0) ? (isNight ? '#17092C' : '#1E1238') : (isNight ? '#07161F' : '#0B1D28');
-          ctx.fillRect(px, py, pw, ph);
-          if (size >= 24) {
-            ctx.fillStyle = (billIdx % 2 === 0) ? '#FF007F' : '#00F0FF';
-            ctx.font = `900 ${Math.max(6, Math.floor(size * 0.18))}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.fillText(billIdx % 2 === 0 ? 'NITRO GP' : 'NEO TURBO', 0, py + ph * 0.58);
+          // Pistas sem estado (ex: Interlagos GP, Serra do Rio do Rastro, Cidade Metrópole, Cânions):
+          // Mantém as placas exatamente como são atualmente
+          const isBrasil = (!def || def.id === 'brasil');
+          const isSerra = (def && def.id === 'serra');
+
+          if (isBrasil) {
+            if (billIdx === 0 || billIdx === 3) {
+              // "LH44" com arco-íris retrô (Padrão Top Gear)
+              ctx.fillStyle = isNight ? '#0F1A2E' : '#16233B';
+              ctx.fillRect(px, py, pw, ph);
+              const rCols = ['#E65100', '#F57C00', '#FFB300', '#00ACC1', '#1E88E5'];
+              for (let r = 0; r < rCols.length; r++) {
+                ctx.fillStyle = rCols[r];
+                ctx.beginPath();
+                ctx.moveTo(px, py + ph * 0.42 + r * (ph * 0.10));
+                ctx.quadraticCurveTo(px + pw * 0.5, py + ph * 0.32 + r * (ph * 0.10), px + pw * 0.74, py + ph);
+                ctx.lineTo(px + pw * 0.64, py + ph);
+                ctx.quadraticCurveTo(px + pw * 0.45, py + ph * 0.38 + r * (ph * 0.10), px, py + ph * 0.50 + r * (ph * 0.10));
+                ctx.fill();
+              }
+              if (size >= 4) {
+                ctx.fillStyle = isNight ? '#FFFFFF' : '#F8FAFC';
+                ctx.font = `900 ${Math.max(7, Math.floor(size * 1.45))}px sans-serif`;
+                ctx.textAlign = 'left';
+                ctx.fillText('LH44', px + pw * 0.08, py + ph * 0.52);
+              }
+              ctx.fillStyle = isNight ? '#FFE082' : '#FFD54F';
+              ctx.beginPath();
+              ctx.arc(px + pw * 0.82, py + ph * 0.55, ph * 0.28, 0, Math.PI * 2);
+              ctx.fill();
+            } else if (billIdx === 1 || billIdx === 4) {
+              // "LH44" vermelho clássico
+              ctx.fillStyle = isNight ? '#7F1D1D' : '#B71C1C';
+              ctx.fillRect(px, py, pw, ph);
+              ctx.fillStyle = '#FFE082';
+              ctx.fillRect(px, py + ph * 0.74, pw, ph * 0.14);
+              if (size >= 4) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = `900 ${Math.max(7, Math.floor(size * 1.35))}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.fillText('LH44', 0, py + ph * 0.54);
+              }
+            } else {
+              // "LH44" verde/dourado
+              ctx.fillStyle = isNight ? '#14461B' : '#1B5E20';
+              ctx.fillRect(px, py, pw, ph);
+              ctx.fillStyle = '#FDD835';
+              ctx.fillRect(px + pw * 0.05, py + ph * 0.16, pw * 0.90, ph * 0.10);
+              if (size >= 4) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = `900 ${Math.max(7, Math.floor(size * 1.35))}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.fillText('LH44', 0, py + ph * 0.65);
+              }
+            }
+          } else if (isSerra) {
+            if (billIdx % 2 === 0) {
+              // "LH44" laranja montanha
+              ctx.fillStyle = isNight ? '#9A3412' : '#E65100';
+              ctx.fillRect(px, py, pw, ph);
+              if (size >= 4) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = `900 ${Math.max(7, Math.floor(size * 1.35))}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText('LH44', 0, py + ph * 0.58);
+              }
+            } else {
+              // "LH44" verde rali
+              ctx.fillStyle = isNight ? '#0E2317' : '#1A3826';
+              ctx.fillRect(px, py, pw, ph);
+              ctx.fillStyle = '#F59E0B';
+              ctx.fillRect(px, py + ph * 0.78, pw, ph * 0.12);
+              if (size >= 4) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = `900 ${Math.max(7, Math.floor(size * 1.35))}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.fillText('LH44', 0, py + ph * 0.56);
+              }
+            }
+          } else {
+            // "LH44" neon metrópole
+            ctx.fillStyle = (billIdx % 2 === 0) ? (isNight ? '#17092C' : '#1E1238') : (isNight ? '#07161F' : '#0B1D28');
+            ctx.fillRect(px, py, pw, ph);
+            if (size >= 4) {
+              ctx.fillStyle = (billIdx % 2 === 0) ? '#FF007F' : '#00F0FF';
+              ctx.font = `900 ${Math.max(7, Math.floor(size * 1.4))}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.fillText('LH44', 0, py + ph * 0.58);
+            }
           }
         }
 
-        // HASTES DE REFLETORES SUPERIORES (ILUMINAÇÃO DE TOPO)
+        // Hastes de refletores superiores (iluminação noturna)
         const spotX1 = -bw * 0.28;
         const spotX2 = bw * 0.28;
-        const spotArmY = by - size * 0.06;
+        const spotArmY = by - size * 0.35;
         ctx.strokeStyle = isNight ? '#475569' : '#64748B';
-        ctx.lineWidth = Math.max(0.8, size * 0.016);
+        ctx.lineWidth = Math.max(1.0, size * 0.10);
         ctx.beginPath();
         ctx.moveTo(spotX1, by);
         ctx.lineTo(spotX1, spotArmY);
@@ -5499,23 +5655,21 @@
 
         // Lâmpadas dos refletores
         if (isNight) {
-          // ACESAS À NOITE: feixes de luz que iluminam o outdoor
           for (let sx of [spotX1, spotX2]) {
             ctx.fillStyle = '#FFFDE7';
             ctx.beginPath();
-            ctx.arc(sx, spotArmY, Math.max(1.5, size * 0.024), 0, Math.PI * 2);
+            ctx.arc(sx, spotArmY, Math.max(1.5, size * 0.16), 0, Math.PI * 2);
             ctx.fill();
 
-            // Feixe cônico descendo sobre a placa
             const spotGrad = ctx.createLinearGradient(sx, spotArmY, sx, by + bh);
-            spotGrad.addColorStop(0, 'rgba(255, 249, 196, 0.40)');
+            spotGrad.addColorStop(0, 'rgba(255, 249, 196, 0.45)');
             spotGrad.addColorStop(1, 'rgba(255, 238, 88, 0)');
             ctx.fillStyle = spotGrad;
             ctx.beginPath();
-            ctx.moveTo(sx - size * 0.03, spotArmY);
-            ctx.lineTo(sx + size * 0.03, spotArmY);
-            ctx.lineTo(sx + size * 0.22, by + bh);
-            ctx.lineTo(sx - size * 0.22, by + bh);
+            ctx.moveTo(sx - size * 0.20, spotArmY);
+            ctx.lineTo(sx + size * 0.20, spotArmY);
+            ctx.lineTo(sx + size * 1.5, by + bh);
+            ctx.lineTo(sx - size * 1.5, by + bh);
             ctx.closePath();
             ctx.fill();
           }
@@ -5523,30 +5677,628 @@
           for (let sx of [spotX1, spotX2]) {
             ctx.fillStyle = '#FFE082';
             ctx.beginPath();
-            ctx.arc(sx, spotArmY, Math.max(1.2, size * 0.02), 0, Math.PI * 2);
+            ctx.arc(sx, spotArmY, Math.max(1.2, size * 0.12), 0, Math.PI * 2);
             ctx.fill();
           }
         } else {
-          // Dia: refletores desligados
           ctx.fillStyle = '#94A3B8';
           ctx.beginPath();
-          ctx.arc(spotX1, spotArmY, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
-          ctx.arc(spotX2, spotArmY, Math.max(1.0, size * 0.018), 0, Math.PI * 2);
+          ctx.arc(spotX1, spotArmY, Math.max(1.0, size * 0.10), 0, Math.PI * 2);
+          ctx.arc(spotX2, spotArmY, Math.max(1.0, size * 0.10), 0, Math.PI * 2);
           ctx.fill();
         }
-      } else {
-        // Outdoor genérico / padrão
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-size * 0.28, -size * 0.45, size * 0.06, size * 0.45);
-        ctx.fillRect(size * 0.22, -size * 0.45, size * 0.06, size * 0.45);
-        ctx.fillStyle = '#0B1320';
-        ctx.fillRect(-size * 0.46, -size * 0.86, size * 0.92, size * 0.44);
-        ctx.fillStyle = '#00B4D8';
-        ctx.fillRect(-size * 0.42, -size * 0.82, size * 0.84, size * 0.36);
-        ctx.fillStyle = '#FFF';
-        ctx.font = `bold ${Math.max(5, Math.floor(size * 0.16))}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText('TURBO GP', 0, -size * 0.59);
+      }
+
+      ctx.restore();
+    }
+
+    renderStateFlag(ctx, stateCode, px, py, pw, ph, isNight) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(px, py, pw, ph);
+      ctx.clip();
+
+      const cx = px + pw * 0.5;
+      const cy = py + ph * 0.5;
+
+      switch (stateCode) {
+        case 'BA': { // BAHIA: 4 listras horizontais + cantão azul com triângulo branco
+          const sh = ph / 4;
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py, pw, sh);
+          ctx.fillRect(px, py + sh * 2, pw, sh);
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py + sh, pw, sh);
+          ctx.fillRect(px, py + sh * 3, pw, sh);
+          const cw = pw * 0.38;
+          const ch = sh * 2;
+          ctx.fillStyle = '#1D4ED8';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px + cw * 0.5, py + ch * 0.18);
+          ctx.lineTo(px + cw * 0.82, py + ch * 0.82);
+          ctx.lineTo(px + cw * 0.18, py + ch * 0.82);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        }
+
+        case 'SP': { // SÃO PAULO: 13 listras preto/branco + cantão vermelho com círculo
+          const sh = ph / 13;
+          for (let i = 0; i < 13; i++) {
+            ctx.fillStyle = (i % 2 === 0) ? '#111827' : '#F8FAFC';
+            ctx.fillRect(px, py + i * sh, pw, sh);
+          }
+          const cw = pw * 0.40;
+          const ch = sh * 5;
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, ch * 0.34, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#1E3A8A';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, ch * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FBBF24';
+          const starPts = [
+            [px + cw * 0.14, py + ch * 0.20],
+            [px + cw * 0.86, py + ch * 0.20],
+            [px + cw * 0.14, py + ch * 0.80],
+            [px + cw * 0.86, py + ch * 0.80]
+          ];
+          for (let pt of starPts) {
+            ctx.beginPath();
+            ctx.arc(pt[0], pt[1], Math.max(1, ch * 0.08), 0, Math.PI * 2);
+            ctx.fill();
+          }
+          break;
+        }
+
+        case 'RJ': { // RIO DE JANEIRO: Esquartelada branco e azul celeste com brasão
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py, pw * 0.5, ph * 0.5);
+          ctx.fillRect(px + pw * 0.5, py + ph * 0.5, pw * 0.5, ph * 0.5);
+          ctx.fillStyle = '#38BDF8';
+          ctx.fillRect(px + pw * 0.5, py, pw * 0.5, ph * 0.5);
+          ctx.fillRect(px, py + ph * 0.5, pw * 0.5, ph * 0.5);
+          ctx.strokeStyle = '#15803D';
+          ctx.lineWidth = Math.max(1.5, ph * 0.07);
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, pw * 0.15, ph * 0.32, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = '#0284C7';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, pw * 0.11, ph * 0.24, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#F8FAFC';
+          ctx.beginPath();
+          ctx.arc(cx, cy - ph * 0.05, ph * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'MG': { // MINAS GERAIS: Campo branco com triângulo vermelho central
+          ctx.fillStyle = '#F8FAFC';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#DC2626';
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - ph * 0.36);
+          ctx.lineTo(cx + pw * 0.24, cy + ph * 0.28);
+          ctx.lineTo(cx - pw * 0.24, cy + ph * 0.28);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        }
+
+        case 'DF': { // DISTRITO FEDERAL: Campo branco com Cruz de Brasília verde e amarela
+          ctx.fillStyle = '#F8FAFC';
+          ctx.fillRect(px, py, pw, ph);
+          const sq = ph * 0.50;
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(cx - sq * 0.5, cy - sq * 0.5, sq, sq);
+          ctx.fillStyle = '#FBBF24';
+          const fLen = sq * 0.38;
+          ctx.fillRect(cx - sq * 0.12, cy - sq * 0.5, sq * 0.24, fLen);
+          ctx.fillRect(cx - sq * 0.12, cy + sq * 0.5 - fLen, sq * 0.24, fLen);
+          ctx.fillRect(cx - sq * 0.5, cy - sq * 0.12, fLen, sq * 0.24);
+          ctx.fillRect(cx + sq * 0.5 - fLen, cy - sq * 0.12, fLen, sq * 0.24);
+          break;
+        }
+
+        case 'RS': { // RIO GRANDE DO SUL: 3 faixas diagonais (Verde, Vermelho, Amarelo)
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + pw * 0.55, py);
+          ctx.lineTo(px, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#DC2626';
+          ctx.beginPath();
+          ctx.moveTo(px + pw * 0.55, py);
+          ctx.lineTo(px + pw, py);
+          ctx.lineTo(px + pw, py + ph * 0.35);
+          ctx.lineTo(px + pw * 0.45, py + ph);
+          ctx.lineTo(px, py + ph);
+          ctx.lineTo(px, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.moveTo(px + pw, py + ph * 0.35);
+          ctx.lineTo(px + pw, py + ph);
+          ctx.lineTo(px + pw * 0.45, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, pw * 0.14, ph * 0.26, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#D97706';
+          ctx.lineWidth = Math.max(1, ph * 0.04);
+          ctx.stroke();
+          break;
+        }
+
+        case 'PR': { // PARANÁ: Campo verde, faixa diagonal branca, esfera azul com estrelas
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px, py + ph * 0.22);
+          ctx.lineTo(px + pw * 0.25, py);
+          ctx.lineTo(px + pw, py + ph * 0.78);
+          ctx.lineTo(px + pw * 0.75, py + ph);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#1E3A8A';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(cx, cy, Math.max(1, ph * 0.04), 0, Math.PI * 2);
+          ctx.arc(cx - ph * 0.08, cy - ph * 0.05, Math.max(1, ph * 0.035), 0, Math.PI * 2);
+          ctx.arc(cx + ph * 0.08, cy - ph * 0.04, Math.max(1, ph * 0.035), 0, Math.PI * 2);
+          ctx.arc(cx, cy - ph * 0.10, Math.max(1, ph * 0.035), 0, Math.PI * 2);
+          ctx.arc(cx + ph * 0.04, cy + ph * 0.08, Math.max(1, ph * 0.03), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'PE': { // PERNAMBUCO: Azul/Branco com arco-íris, sol, estrela e cruz vermelha
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, pw, ph * 0.55);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py + ph * 0.55, pw, ph * 0.45);
+          const rbColors = ['#DC2626', '#FBBF24', '#16A34A'];
+          for (let r = 0; r < 3; r++) {
+            ctx.strokeStyle = rbColors[r];
+            ctx.lineWidth = Math.max(1.2, ph * 0.045);
+            ctx.beginPath();
+            ctx.arc(cx, py + ph * 0.54, ph * (0.34 - r * 0.045), Math.PI, 0);
+            ctx.stroke();
+          }
+          ctx.fillStyle = '#F59E0B';
+          ctx.beginPath();
+          ctx.arc(cx, py + ph * 0.54, ph * 0.14, Math.PI, 0);
+          ctx.fill();
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, py + ph * 0.12, Math.max(1.5, ph * 0.05), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#DC2626';
+          const cw = pw * 0.045;
+          const ch = ph * 0.30;
+          ctx.fillRect(cx - cw * 0.5, py + ph * 0.62, cw, ch);
+          ctx.fillRect(cx - cw * 1.8, py + ph * 0.70, cw * 3.6, cw);
+          break;
+        }
+
+        case 'CE': { // CEARÁ: Campo verde, losango amarelo e círculo branco/verde
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.moveTo(cx, py + ph * 0.10);
+          ctx.lineTo(px + pw * 0.90, cy);
+          ctx.lineTo(cx, py + ph * 0.90);
+          ctx.lineTo(px + pw * 0.10, cy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.15, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'SC': { // SANTA CATARINA: Vermelho, Branco, Vermelho com losango verde
+          const sh = ph / 3;
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py, pw, sh);
+          ctx.fillRect(px, py + sh * 2, pw, sh);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py + sh, pw, sh);
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(cx, py + ph * 0.18);
+          ctx.lineTo(cx + pw * 0.18, cy);
+          ctx.lineTo(cx, py + ph * 0.82);
+          ctx.lineTo(cx - pw * 0.18, cy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'GO': { // GOIÁS: 8 listras verdes e amarelas com cantão azul e estrelas
+          const sh = ph / 8;
+          for (let i = 0; i < 8; i++) {
+            ctx.fillStyle = (i % 2 === 0) ? '#15803D' : '#FBBF24';
+            ctx.fillRect(px, py + i * sh, pw, sh);
+          }
+          const cw = pw * 0.38;
+          const ch = sh * 4;
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, Math.max(1, ch * 0.08), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.5, py + ch * 0.24, Math.max(1, ch * 0.07), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.5, py + ch * 0.76, Math.max(1, ch * 0.07), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.28, py + ch * 0.45, Math.max(1, ch * 0.07), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.72, py + ch * 0.45, Math.max(1, ch * 0.07), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'ES': { // ESPÍRITO SANTO: Azul Claro, Branco, Rosa com lema
+          const sh = ph / 3;
+          ctx.fillStyle = '#38BDF8';
+          ctx.fillRect(px, py, pw, sh);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py + sh, pw, sh);
+          ctx.fillStyle = '#F472B6';
+          ctx.fillRect(px, py + sh * 2, pw, sh);
+          ctx.fillStyle = '#0284C7';
+          ctx.font = `bold ${Math.max(4, Math.floor(ph * 0.16))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText('TRABALHA E CONFIA', cx, py + sh * 1.62);
+          break;
+        }
+
+        case 'AM': { // AMAZONAS: Branco, Vermelho, Branco com cantão azul
+          const sh = ph / 3;
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py, pw, sh);
+          ctx.fillRect(px, py + sh * 2, pw, sh);
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py + sh, pw, sh);
+          const cw = pw * 0.42;
+          const ch = sh * 2;
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, Math.max(1.5, ch * 0.12), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'PA': { // PARÁ: Vermelho com faixa branca diagonal e estrela azul
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px, py + ph * 0.18);
+          ctx.lineTo(px + pw * 0.22, py);
+          ctx.lineTo(px + pw, py + ph * 0.82);
+          ctx.lineTo(px + pw * 0.78, py + ph);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#1E3A8A';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'RN': { // RIO GRANDE DO NORTE: Verde e Branco com escudo dourado
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py, pw, ph * 0.5);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py + ph * 0.5, pw, ph * 0.5);
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, pw * 0.15, ph * 0.28, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(cx - 1, cy - ph * 0.12, 2, ph * 0.22);
+          ctx.beginPath();
+          ctx.arc(cx, cy - ph * 0.12, ph * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'AL': { // ALAGOAS: Vermelho, Branco, Azul vertical com brasão
+          const sw = pw / 3;
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py, sw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px + sw, py, sw, ph);
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px + sw * 2, py, sw, ph);
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'PB': { // PARAÍBA: Preto 1/3, Vermelho 2/3 com texto NÉGO
+          const bw = pw * 0.33;
+          ctx.fillStyle = '#111827';
+          ctx.fillRect(px, py, bw, ph);
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px + bw, py, pw - bw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = `900 ${Math.max(6, Math.floor(ph * 0.30))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText('NÉGO', px + bw + (pw - bw) * 0.5, cy + ph * 0.10);
+          break;
+        }
+
+        case 'MA': { // MARANHÃO: 9 listras horizontais com cantão azul e estrela
+          const sh = ph / 9;
+          const mCols = ['#FFFFFF', '#111827', '#DC2626'];
+          for (let i = 0; i < 9; i++) {
+            ctx.fillStyle = mCols[i % 3];
+            ctx.fillRect(px, py + i * sh, pw, sh);
+          }
+          const cw = pw * 0.38;
+          const ch = sh * 4;
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, Math.max(1.5, ch * 0.20), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'PI': { // PIAUÍ: 13 listras verdes/amarelas com cantão azul
+          const sh = ph / 13;
+          for (let i = 0; i < 13; i++) {
+            ctx.fillStyle = (i % 2 === 0) ? '#15803D' : '#FBBF24';
+            ctx.fillRect(px, py + i * sh, pw, sh);
+          }
+          const cw = pw * 0.40;
+          const ch = sh * 6;
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, Math.max(1.5, ch * 0.20), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'SE': { // SERGIPE: 4 listras verdes e amarelas com cantão azul e 5 estrelas
+          const sh = ph / 4;
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py, pw, sh);
+          ctx.fillRect(px, py + sh * 2, pw, sh);
+          ctx.fillStyle = '#FBBF24';
+          ctx.fillRect(px, py + sh, pw, sh);
+          ctx.fillRect(px, py + sh * 3, pw, sh);
+          const cw = pw * 0.38;
+          const ch = sh * 2;
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, cw, ch);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(px + cw * 0.5, py + ch * 0.5, Math.max(1, ch * 0.08), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.28, py + ch * 0.32, Math.max(1, ch * 0.06), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.72, py + ch * 0.32, Math.max(1, ch * 0.06), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.28, py + ch * 0.68, Math.max(1, ch * 0.06), 0, Math.PI * 2);
+          ctx.arc(px + cw * 0.72, py + ch * 0.68, Math.max(1, ch * 0.06), 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'MT': { // MATO GROSSO: Azul com losango branco, círculo verde e estrela amarela
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(cx, py + ph * 0.12);
+          ctx.lineTo(px + pw * 0.88, cy);
+          ctx.lineTo(cx, py + ph * 0.88);
+          ctx.lineTo(px + pw * 0.12, cy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.24, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'MS': { // MATO GROSSO DO SUL: Verde, faixa branca, Azul com estrela dourada
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + pw, py);
+          ctx.lineTo(px, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#1E3A8A';
+          ctx.beginPath();
+          ctx.moveTo(px + pw, py);
+          ctx.lineTo(px + pw, py + ph);
+          ctx.lineTo(px, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = Math.max(2, ph * 0.14);
+          ctx.beginPath();
+          ctx.moveTo(px, py + ph);
+          ctx.lineTo(px + pw, py);
+          ctx.stroke();
+
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(px + pw * 0.82, py + ph * 0.75, ph * 0.11, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'RO': { // RONDÔNIA: Azul/Verde com triângulo branco e estrela amarela
+          ctx.fillStyle = '#1E3A8A';
+          ctx.fillRect(px, py, pw, ph * 0.5);
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py + ph * 0.5, pw, ph * 0.5);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px, py + ph);
+          ctx.lineTo(cx, py + ph * 0.25);
+          ctx.lineTo(px + pw, py + ph);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, py + ph * 0.55, ph * 0.14, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'AC': { // ACRE: Diagonal Amarelo/Verde com estrela vermelha
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + pw, py);
+          ctx.lineTo(px, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(px + pw, py);
+          ctx.lineTo(px + pw, py + ph);
+          ctx.lineTo(px, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#DC2626';
+          ctx.beginPath();
+          ctx.arc(px + pw * 0.22, py + ph * 0.28, ph * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'AP': { // AMAPÁ: Azul/Verde com faixa branca/amarela e triângulo verde
+          ctx.fillStyle = '#0284C7';
+          ctx.fillRect(px, py, pw, ph * 0.45);
+          ctx.fillStyle = '#15803D';
+          ctx.fillRect(px, py + ph * 0.55, pw, ph * 0.45);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px, py + ph * 0.45, pw, ph * 0.10);
+          ctx.fillStyle = '#FBBF24';
+          ctx.fillRect(px, py + ph * 0.48, pw, ph * 0.04);
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + pw * 0.28, cy);
+          ctx.lineTo(px, py + ph);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        }
+
+        case 'RR': { // RORAIMA: Diagonais Azul/Branco/Verde com estrela amarela e linha vermelha
+          ctx.fillStyle = '#0284C7';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px, py + ph);
+          ctx.lineTo(px + pw * 0.35, py);
+          ctx.lineTo(px + pw * 0.70, py);
+          ctx.lineTo(px + pw, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#15803D';
+          ctx.beginPath();
+          ctx.moveTo(px + pw * 0.70, py);
+          ctx.lineTo(px + pw, py);
+          ctx.lineTo(px + pw, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#DC2626';
+          ctx.fillRect(px, py + ph * 0.90, pw, ph * 0.10);
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        case 'TO': { // TOCANTINS: Diagonais Azul/Branco/Amarelo com sol estilizado
+          ctx.fillStyle = '#1E3A8A';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + pw * 0.55, py);
+          ctx.lineTo(px, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.moveTo(px + pw * 0.55, py);
+          ctx.lineTo(px + pw, py);
+          ctx.lineTo(px + pw, py + ph * 0.35);
+          ctx.lineTo(px + pw * 0.45, py + ph);
+          ctx.lineTo(px, py + ph);
+          ctx.lineTo(px, py + ph * 0.65);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#FBBF24';
+          ctx.beginPath();
+          ctx.moveTo(px + pw, py + ph * 0.35);
+          ctx.lineTo(px + pw, py + ph);
+          ctx.lineTo(px + pw * 0.45, py + ph);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#F59E0B';
+          ctx.beginPath();
+          ctx.arc(cx, cy, ph * 0.16, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+
+        default:
+          break;
       }
 
       ctx.restore();

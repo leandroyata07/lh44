@@ -6,16 +6,45 @@
 window.addEventListener('load', () => {
   window.game = window.gameInstance = new LH44RacingGame();
 
-  // Destravamento imediato do Web Audio e início da música tema no primeiríssimo gesto do usuário
-  const unlockAudioImmediate = () => {
+  // Início imediato da música tema ao carregar a página
+  const cleanupListeners = () => {
+    window.removeEventListener('pointerdown', startMusicImmediate);
+    window.removeEventListener('touchstart', startMusicImmediate);
+    window.removeEventListener('click', startMusicImmediate);
+    window.removeEventListener('keydown', startMusicImmediate);
+    window.removeEventListener('focus', startMusicImmediate);
+  };
+
+  const startMusicImmediate = () => {
     const g = window.game || window.gameInstance;
     if (g && g.audio) {
+      if (g.audio.titlePlaying || g.audio.musicPlaying) {
+        cleanupListeners();
+        return;
+      }
       const isMenuState = (g.state === 'MENU' || g.state === 'MODE_SELECT' || g.state === 'DIFFICULTY_SELECT' || g.state === 'TRACK_SELECT' || g.state === 'CAR_SELECT' || g.state === 'COLOR_SELECT' || g.state === 'NAME_INPUT');
-      g.audio.unlockAudio(isMenuState);
+      if (isMenuState) {
+        g.audio.unlockAudio(true);
+        g.audio.playTitleMusic();
+        if (g.audio.titlePlaying) {
+          cleanupListeners();
+        }
+      }
     }
   };
-  window.addEventListener('pointerdown', unlockAudioImmediate, { passive: true });
-  window.addEventListener('touchstart', unlockAudioImmediate, { passive: true });
-  window.addEventListener('click', unlockAudioImmediate, { passive: true });
-  window.addEventListener('keydown', unlockAudioImmediate, { passive: true });
+
+  // 1. Toca automaticamente de imediato (WebView Android / Autoplay liberado)
+  startMusicImmediate();
+  setTimeout(startMusicImmediate, 80);
+  setTimeout(startMusicImmediate, 250);
+
+  // 2. Destravamento garantido no primeiríssimo evento de interação
+  window.addEventListener('pointerdown', startMusicImmediate, { passive: true });
+  window.addEventListener('touchstart', startMusicImmediate, { passive: true });
+  window.addEventListener('click', startMusicImmediate, { passive: true });
+  window.addEventListener('keydown', startMusicImmediate, { passive: true });
+  window.addEventListener('focus', startMusicImmediate, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) startMusicImmediate();
+  }, { passive: true });
 });

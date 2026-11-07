@@ -435,7 +435,7 @@
     drawTailGlow(c, x, y, rx, ry, isBraking, isNight) {
       if (!isBraking && !isNight) return;
       if (isBraking) {
-        // Freio acionado: luz ultra-forte que sobrepoe a lanterna com nucleo incandescente
+        // Freio acionado: luz de freio original restaurada
         const r = Math.max(rx, ry) * 2.8;
         const grad = c.createRadialGradient(x, y, 0.5, x, y, r);
         grad.addColorStop(0, 'rgba(255, 250, 240, 0.95)');
@@ -447,15 +447,17 @@
         c.ellipse(x, y, rx * 2.6, ry * 2.6, 0, 0, Math.PI * 2);
         c.fill();
       } else {
-        // Lanterna de noite: vermelho rubi continuo e suave
-        const r = Math.max(rx, ry) * 1.5;
-        const grad = c.createRadialGradient(x, y, 0.5, x, y, r);
-        grad.addColorStop(0, 'rgba(255, 45, 20, 0.60)');
-        grad.addColorStop(0.55, 'rgba(220, 20, 10, 0.25)');
-        grad.addColorStop(1, 'rgba(180, 15, 0, 0)');
+        // Lanterna de posição em horário escuro (noite / crepúsculo / final da tarde / túneis):
+        // Vermelho automotivo aceso, nítido e luminoso (mantido ativo)
+        const r = Math.max(rx, ry) * 1.9;
+        const grad = c.createRadialGradient(x, y, 0.2, x, y, r);
+        grad.addColorStop(0, 'rgba(255, 120, 120, 0.92)');
+        grad.addColorStop(0.35, 'rgba(255, 30, 30, 0.75)');
+        grad.addColorStop(0.70, 'rgba(220, 15, 15, 0.28)');
+        grad.addColorStop(1, 'rgba(160, 0, 0, 0)');
         c.fillStyle = grad;
         c.beginPath();
-        c.ellipse(x, y, rx * 1.5, ry * 1.5, 0, 0, Math.PI * 2);
+        c.ellipse(x, y, rx * 1.85, ry * 1.85, 0, 0, Math.PI * 2);
         c.fill();
       }
     },
@@ -500,6 +502,7 @@
           this.getSprite(mod, mod.primaryColor, angles[a], false, false);
           this.getSprite(mod, mod.primaryColor, angles[a], true, false);
           this.getSprite(mod, mod.primaryColor, angles[a], false, true);
+          this.getSprite(mod, mod.primaryColor, angles[a], true, true);
         }
       }
     },
@@ -694,7 +697,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, silenciador transversal e suspensão traseira
         // Lameiras / para-barros pretos atrás dos pneus traseiros
@@ -1022,7 +1025,7 @@
         const rx = -turn * 4.5;
         const tx = -turn * 2.1;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi do motor Boxer e pneus
         // Lameiras / para-barros pretos clássicos do Fusca atrás das rodas
@@ -1310,7 +1313,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0D1117';
@@ -1541,7 +1544,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0B0F16';
@@ -1768,7 +1771,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // Pneus largos de muscle car com tala esportiva
         CarArt.drawRearTire(c, rx - 34.0 * sx, 12.0, 11.5, 12.5);
@@ -1896,7 +1899,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         CarArt.drawRearTire(c, rx - 31.8 * sx, 12.5, 9.8, 11.5);
         CarArt.drawRearTire(c, rx + 22.0 * sx, 12.5, 9.8, 11.5);
@@ -2035,7 +2038,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, diferencial de tração traseira do Chevette e pneus
         c.fillStyle = '#0B0E14';
@@ -2215,7 +2218,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, cárter do Boxer e pneus com calotas
         c.fillStyle = '#0B0E14';
@@ -2407,7 +2410,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0B0F16';
@@ -2603,7 +2606,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0B0F16';
@@ -2780,7 +2783,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi moderno e pneus esportivos
         c.fillStyle = '#0B0F16';
@@ -2974,7 +2977,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0B0F16';
@@ -3143,7 +3146,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi e pneus
         c.fillStyle = '#0B0F16';
@@ -3317,7 +3320,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi elevado e pneus
         c.fillStyle = '#0B0F16';
@@ -3503,7 +3506,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi esportivo e pneus
         c.fillStyle = '#0B0F16';
@@ -3687,7 +3690,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi largo e pneus esportivos
         c.fillStyle = '#0B0F16';
@@ -3887,7 +3890,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi compacto e pneus
         c.fillStyle = '#0B0F16';
@@ -4081,7 +4084,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         CarArt.drawRearTire(c, rx - 33.5 * sx, 13, 10.4, 11.2);
         CarArt.drawRearTire(c, rx + 22.5 * sx, 13, 10.4, 11.2);
@@ -4193,7 +4196,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, chassi maciço 4x4 e pneus lameiros
         c.fillStyle = '#0B0F16';
@@ -4368,7 +4371,7 @@
         const rx = -turn * 4.6;
         const tx = -turn * 2.2;
         const sx = 1 - at * 0.05;
-        const tailRed = isBraking ? '#FF0500' : (isNight ? '#E61E14' : '#6A1016');
+        const tailRed = isBraking ? '#FF0500' : (isNight ? '#FF2A2A' : '#4A080C');
 
         // 1. Assoalho inferior, cárter Boxer e pneus com calotas
         c.fillStyle = '#0B0F16';

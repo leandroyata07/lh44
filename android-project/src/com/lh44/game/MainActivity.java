@@ -3,6 +3,7 @@ package com.lh44.game;
 import android.app.Activity;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -70,6 +71,30 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return false;
+            }
+
+            @Override
+            public void onPageFinished(final WebView view, String url) {
+                super.onPageFinished(view, url);
+                view.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            long downTime = SystemClock.uptimeMillis();
+                            MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 2f, 2f, 0);
+                            MotionEvent up = MotionEvent.obtain(downTime, downTime + 20, MotionEvent.ACTION_UP, 2f, 2f, 0);
+                            view.dispatchTouchEvent(down);
+                            view.dispatchTouchEvent(up);
+                            down.recycle();
+                            up.recycle();
+                        } catch (Exception ignored) {}
+
+                        view.evaluateJavascript(
+                            "if (window.game && window.game.audio) { window.game.audio.unlockAudio(true); window.game.audio.playTitleMusic(); }",
+                            null
+                        );
+                    }
+                }, 100);
             }
         });
 
