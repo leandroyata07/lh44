@@ -18,15 +18,13 @@ window.addEventListener('load', () => {
   const startMusicImmediate = () => {
     const g = window.game || window.gameInstance;
     if (g && g.audio) {
-      if (g.audio.titlePlaying || g.audio.musicPlaying) {
-        cleanupListeners();
-        return;
-      }
       const isMenuState = (g.state === 'MENU' || g.state === 'MODE_SELECT' || g.state === 'DIFFICULTY_SELECT' || g.state === 'TRACK_SELECT' || g.state === 'CAR_SELECT' || g.state === 'COLOR_SELECT' || g.state === 'NAME_INPUT');
       if (isMenuState) {
         g.audio.unlockAudio(true);
-        g.audio.playTitleMusic();
-        if (g.audio.titlePlaying) {
+        if (!g.audio.titlePlaying) {
+          g.audio.playTitleMusic();
+        }
+        if (g.audio.ctx && g.audio.ctx.state === 'running' && g.audio.titlePlaying) {
           cleanupListeners();
         }
       }
@@ -35,8 +33,9 @@ window.addEventListener('load', () => {
 
   // 1. Toca automaticamente de imediato (WebView Android / Autoplay liberado)
   startMusicImmediate();
-  setTimeout(startMusicImmediate, 80);
-  setTimeout(startMusicImmediate, 250);
+  setTimeout(startMusicImmediate, 60);
+  setTimeout(startMusicImmediate, 200);
+  setTimeout(startMusicImmediate, 500);
 
   // 2. Destravamento garantido no primeiríssimo evento de interação
   window.addEventListener('pointerdown', startMusicImmediate, { passive: true });

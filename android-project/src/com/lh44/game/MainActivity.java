@@ -90,11 +90,21 @@ public class MainActivity extends Activity {
                         } catch (Exception ignored) {}
 
                         view.evaluateJavascript(
-                            "if (window.game && window.game.audio) { window.game.audio.unlockAudio(true); window.game.audio.playTitleMusic(); }",
+                            "if (window.game && window.game.audio) { window.game.audio.unlockAudio(true); if (!window.game.audio.titlePlaying) window.game.audio.playTitleMusic(); }",
                             null
                         );
                     }
-                }, 100);
+                }, 50);
+
+                view.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        view.evaluateJavascript(
+                            "if (window.game && window.game.audio) { window.game.audio.unlockAudio(true); if (!window.game.audio.titlePlaying) window.game.audio.playTitleMusic(); }",
+                            null
+                        );
+                    }
+                }, 200);
             }
         });
 

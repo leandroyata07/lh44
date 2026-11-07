@@ -203,7 +203,12 @@
         if (gearBtn) gearBtn.classList.remove('active');
         const game = this.getGame();
         if (game && game.state === 'PAUSED') {
-          game.triggerResumeCountdown();
+          if (game.finishingRace || (game.player && game.player.finished)) {
+            game.state = 'RACING';
+            game.pauseDialog = null;
+          } else {
+            game.triggerResumeCountdown();
+          }
         }
       }
     }
@@ -222,7 +227,7 @@
           if (backdrop) backdrop.classList.add('open');
           if (gearBtn) gearBtn.classList.add('active');
           const game = this.getGame();
-          if (game && game.state === 'RACING') {
+          if (game && game.state === 'RACING' && !game.finishingRace && !(game.player && game.player.finished)) {
             game.pauseGame();
           }
         }
@@ -824,9 +829,16 @@
         const game = this.getGame();
         if (game) {
           if (game.state === 'RACING') {
-            game.pauseGame();
+            if (!game.finishingRace && !(game.player && game.player.finished)) {
+              game.pauseGame();
+            }
           } else if (game.state === 'PAUSED') {
-            game.triggerResumeCountdown();
+            if (game.finishingRace || (game.player && game.player.finished)) {
+              game.state = 'RACING';
+              game.pauseDialog = null;
+            } else {
+              game.triggerResumeCountdown();
+            }
           } else {
             this.justPressedEsc = true;
           }
@@ -1331,6 +1343,15 @@
       const rsUp = rightStickY < -0.42;
       const rsDown = rightStickY > 0.42;
 
+      const anyGpAction = btnA || btnB || btnX || btnY || btnLB || btnRB || btnSelect || btnStart ||
+                          dpadUp || dpadDown || dpadLeft || dpadRight ||
+                          Math.abs(leftStickX) > 0.22 || Math.abs(leftStickY) > 0.22 ||
+                          Math.abs(rightStickX) > 0.22 || Math.abs(rightStickY) > 0.22 ||
+                          r2Pressure > 0.08 || l2Pressure > 0.08;
+      if (anyGpAction) {
+        this.notifyGesture(false);
+      }
+
       const checkPulse = (key, isDown) => {
         const prev = !!this.prevGamepadButtons[key];
         this.prevGamepadButtons[key] = isDown;
@@ -1362,7 +1383,9 @@
       if (checkPulse('btnStart', btnStart)) {
         const game = this.getGame();
         if (game && game.state === 'RACING') {
-          game.pauseGame();
+          if (!game.finishingRace && !(game.player && game.player.finished)) {
+            game.pauseGame();
+          }
         } else if (game && game.state === 'PAUSED') {
           game.handlePauseStartKey();
         } else {

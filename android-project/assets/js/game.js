@@ -16,6 +16,8 @@
       this.totalDistance = 0;
       this.nextLapTarget = 0;
       this.finishTime = 0;
+      this.finishRank = 0;
+      this.finished = false;
       this.isBraking = false;
       this.steer = 0;
       this.steerAngle = 0;
@@ -400,15 +402,13 @@
 
       const startThemeMusicNow = () => {
         if (this.audio) {
-          if (this.audio.titlePlaying || this.audio.musicPlaying) {
-            cleanupThemeListeners();
-            return;
-          }
           const isMenuState = (this.state === 'MENU' || this.state === 'MODE_SELECT' || this.state === 'DIFFICULTY_SELECT' || this.state === 'TRACK_SELECT' || this.state === 'CAR_SELECT' || this.state === 'COLOR_SELECT' || this.state === 'NAME_INPUT');
           if (isMenuState) {
             this.audio.unlockAudio(true);
-            this.audio.playTitleMusic();
-            if (this.audio.titlePlaying) {
+            if (!this.audio.titlePlaying) {
+              this.audio.playTitleMusic();
+            }
+            if (this.audio.ctx && this.audio.ctx.state === 'running' && this.audio.titlePlaying) {
               cleanupThemeListeners();
             }
           }
@@ -419,6 +419,7 @@
       startThemeMusicNow();
       setTimeout(startThemeMusicNow, 60);
       setTimeout(startThemeMusicNow, 200);
+      setTimeout(startThemeMusicNow, 500);
 
       window.addEventListener('pointerdown', startThemeMusicNow, { passive: true });
       window.addEventListener('keydown', startThemeMusicNow, { passive: true });
@@ -432,6 +433,10 @@
     }
 
     pauseGame() {
+      // Se a corrida já acabou ou está na sequência de bandeirada, não pausa
+      if (this.finishingRace || (this.player && this.player.finished)) {
+        return;
+      }
       if (this.state === 'RACING' || this.state === 'RESUME_COUNTDOWN') {
         this.state = 'PAUSED';
         this.pauseMenuIndex = 0;
@@ -446,6 +451,12 @@
 
     triggerResumeCountdown() {
       if (this.state === 'PAUSED') {
+        // Se a corrida já acabou ou está no pós-bandeirada, volta direto sem contagem regressiva
+        if (this.finishingRace || (this.player && this.player.finished)) {
+          this.state = 'RACING';
+          this.pauseDialog = null;
+          return;
+        }
         this.state = 'RESUME_COUNTDOWN';
         this.resumeCountdown = 3.0;
         this.lastResumeInt = 4;
@@ -805,6 +816,7 @@
     setupRaceGrid() {
       const selectedModel = CAR_MODELS[this.selectedCarIndex];
       this.cars = [];
+      this.finishOrder = [];
 
       if (!this.seasonBots || this.seasonBots.length < 19) {
         this.initSeasonRoster();
@@ -2702,6 +2714,7 @@
       }
 
       if (this.state === 'RACING' && p.totalDistance >= p.nextLapTarget) {
+        const lapTargetDist = p.nextLapTarget;
         p.nextLapTarget += this.track.totalLength;
         p.laps++;
         const thisLap = this.currentLapTime;
@@ -2716,8 +2729,7 @@
         this.lapBannerTimer = 2.0;
 
         if (p.laps >= TOTAL_LAPS) {
-          p.finishTime = this.raceTimer;
-          p.finished = true;
+          this.registerCarFinish(p, dt, stepZ, lapTargetDist);
           this.lapBannerTimer = 0;
           this.isLastLapBanner = false;
           this.lapBannerText = '';
@@ -3000,10 +3012,11 @@
         bot.totalDistance += botStepZ;
 
         if (bot.totalDistance >= bot.nextLapTarget) {
+          const lapTargetDist = bot.nextLapTarget;
           bot.nextLapTarget += this.track.totalLength;
           bot.laps++;
-          if (bot.laps >= TOTAL_LAPS && bot.finishTime === 0) {
-            bot.finishTime = this.raceTimer;
+          if (bot.laps >= TOTAL_LAPS) {
+            this.registerCarFinish(bot, dt, botStepZ, lapTargetDist);
           }
         }
 
@@ -3224,6 +3237,28 @@
       this.input.clearPulses();
     }
 
+    registerCarFinish(car, dt, stepZ, targetDist = null) {
+      if (car.finished || car.finishRank > 0) return;
+      car.finished = true;
+
+      const finishTarget = targetDist || (car.nextLapTarget ? (car.nextLapTarget - this.track.totalLength) : (START_LINE_Z + TOTAL_LAPS * this.track.totalLength));
+      const prevDist = car.totalDistance - stepZ;
+      const distInFrame = Math.max(0.001, car.totalDistance - prevDist);
+      const distToTarget = Math.max(0, finishTarget - prevDist);
+      const fraction = Math.max(0, Math.min(1, distToTarget / distInFrame));
+      car.finishTime = Math.max(0.001, (this.raceTimer - dt) + fraction * dt);
+
+      if (!this.finishOrder) this.finishOrder = [];
+      if (!this.finishOrder.includes(car)) {
+        this.finishOrder.push(car);
+        // Garante ordenação inequívoca por tempo de chegada exato (sub-frame)
+        this.finishOrder.sort((a, b) => a.finishTime - b.finishTime);
+        for (let i = 0; i < this.finishOrder.length; i++) {
+          this.finishOrder[i].finishRank = i + 1;
+        }
+      }
+    }
+
     getRankedCars() {
       if (!this.cachedRankedCars || this.cachedRankedCars.length !== this.cars.length) {
         this.cachedRankedCars = new Array(this.cars.length);
@@ -3232,9 +3267,13 @@
         this.cachedRankedCars[i] = this.cars[i];
       }
       this.cachedRankedCars.sort((a, b) => {
+        if (a.finishRank && b.finishRank) return a.finishRank - b.finishRank;
+        if (a.finishRank) return -1;
+        if (b.finishRank) return 1;
         if (a.finishTime > 0 && b.finishTime > 0) return a.finishTime - b.finishTime;
         if (a.finishTime > 0) return -1;
         if (b.finishTime > 0) return 1;
+        if (a.laps !== b.laps) return b.laps - a.laps;
         return b.totalDistance - a.totalDistance;
       });
       return this.cachedRankedCars;
@@ -7524,7 +7563,12 @@
 
       // Dica de controle abaixo dos botões
       const hintY = btn1_Y + btnH + 13;
-      if (this.input.gamepadConnected) {
+      if (this.audio && this.audio.ctx && this.audio.ctx.state !== 'running') {
+        const audioPulse = 0.5 + 0.5 * Math.sin(now * 0.008);
+        ctx.fillStyle = `rgba(255, 235, 59, ${0.75 + 0.25 * audioPulse})`;
+        ctx.font = touchSafe ? 'bold 5.8px monospace' : 'bold 6.6px monospace';
+        ctx.fillText('🔊 CLIQUE NA TELA OU PRESSIONE UMA TECLA PARA ATIVAR O SOM', cx, hintY);
+      } else if (this.input.gamepadConnected) {
         ctx.fillStyle = '#00E5FF';
         ctx.font = touchSafe ? 'bold 6.5px monospace' : 'bold 7.2px monospace';
         ctx.fillText('🎮 [D-PAD] NAVEGA | [A] CONFIRMA', cx, hintY);

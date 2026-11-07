@@ -7,29 +7,36 @@ const _ = 0, T = -1, N = null;
 
 const TITLE_THEME_SONG = {
   id: 'title',
-  name: 'TITLE THEME',
+  name: 'ARCADE APEX',
   type: 'synth',
-  desc: 'Tema de Abertura Arcade Padrão: recepção épica no grid de largada.',
-  bpm: 130, swing: 0,
-  lead: 'pulse', bassType: 'synth',
-  roots: [48, 55, 45, 41, 48, 55, 41, 43],
+  desc: 'Tema Oficial LH44: alta energia arcade dos anos 90, slap bass vibrante e sintetizadores triunfantes.',
+  bpm: 134, swing: 0,
+  lead: 'saw', bassType: 'funk',
+  roots: [41, 43, 40, 45, 38, 43, 48, 46],
   chords: [
-    [60,64,67], [59,62,67], [57,60,64], [53,57,60],
-    [60,64,67], [59,62,67], [53,57,60], [55,59,62]
+    [53, 57, 60], [55, 59, 62], [52, 55, 59], [57, 60, 64],
+    [50, 53, 57], [55, 59, 62], [60, 64, 67], [58, 62, 65]
   ],
-  pad: 0,
-  stab: '..x...x...x...x.', stabType: 'triangle', stabVol: 0.025,
-  bass: [0,N,0,N, 12,N,0,N, 0,N,12,N, 0,N,12,N],
-  drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.', o: '..x...x...x...x.' },
+  pad: 0.05,
+  stab: '..x...x...x...x.', stabType: 'triangle', stabVol: 0.038,
+  bass: [0, N, 12, N, 0, 0, 12, N, 0, N, 12, N, 0, 10, 12, N],
+  drums: {
+    k: 'x...x...x...x...',
+    s: '....x.......x...',
+    h: 'x.x.x.x.x.x.x.x.',
+    o: '..x...x...x...x.',
+    p: '..x...x.x...x...',
+    c: '....x.......x...'
+  },
   melody: [
-    [72,T,76,T, 79,T,84,T, 83,T,79,T, 76,T,79,T],
-    [79,T,74,T, 71,T,74,T, 79,T,T,T,  81,T,79,T],
-    [76,T,72,T, 69,T,72,T, 76,T,79,T, 81,T,84,T],
-    [81,T,77,T, 74,T,77,T, 81,T,T,T,  83,T,81,T],
-    [84,T,83,T, 79,T,76,T, 79,T,84,T, 86,T,84,T],
-    [86,T,83,T, 79,T,74,T, 79,T,83,T, 86,T,88,T],
-    [89,T,86,T, 84,T,81,T, 84,T,86,T, 89,T,91,T],
-    [91,T,86,T, 83,T,79,T, 76,T,79,T, 83,T,84,T]
+    [72,T,76,T, 77,T,79,T, 81,T,84,T, 81,T,79,T],
+    [79,T,77,T, 76,T,74,T, 77,T,79,T, 83,T,81,T],
+    [83,T,79,T, 76,T,79,T, 83,T,86,T, 88,T,86,T],
+    [84,T,81,T, 76,T,81,T, 84,T,88,T, 86,T,84,T],
+    [77,T,81,T, 84,T,86,T, 88,T,86,T, 84,T,81,T],
+    [79,T,83,T, 86,T,89,T, 91,T,89,T, 86,T,83,T],
+    [88,T,84,T, 88,T,91,T, 95,T,91,T, 88,T,84,T],
+    [86,T,84,T, 82,T,79,T, 82,T,84,T, 86,T,T,T]
   ]
 };
 
@@ -439,14 +446,34 @@ class AudioManager {
     }
   }
 
+  _triggerAudioElementUnlock() {
+    try {
+      if (!this._unlockAudioEl) {
+        this._unlockAudioEl = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAP8A/w==');
+      }
+      const p = this._unlockAudioEl.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().then(() => {
+              this.nextNoteTime = this.ctx.currentTime + 0.05;
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
   unlockAudio(forceStartTitle = true) {
     if (!this._enabled) return;
     if (!this.ctx) this.init();
+    this._triggerAudioElementUnlock();
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().then(() => {
         if (this.musicBus) {
           this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
         }
+        this.nextNoteTime = this.ctx.currentTime + 0.05;
         const g = window.game || window.gameInstance;
         const isMenu = !g || (g.state === 'MENU' || g.state === 'MODE_SELECT' || g.state === 'DIFFICULTY_SELECT' || g.state === 'TRACK_SELECT' || g.state === 'CAR_SELECT' || g.state === 'COLOR_SELECT' || g.state === 'NAME_INPUT');
         if (forceStartTitle && isMenu && !this._musicPlaying && !this.titlePlaying) {
@@ -465,7 +492,15 @@ class AudioManager {
 
   playTitleMusic() {
     if (!this._enabled || !this.musicEnabled) return;
-    if (this.titlePlaying || this._musicPlaying) return;
+    if (this.titlePlaying) {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().then(() => {
+          this.nextNoteTime = this.ctx.currentTime + 0.05;
+        }).catch(() => {});
+      }
+      return;
+    }
+    if (this._musicPlaying) return;
 
     const g = window.game || window.gameInstance;
     if (g && (g.state === 'RACING' || g.state === 'COUNTDOWN' || g.state === 'PAUSED' || g.state === 'RESUME_COUNTDOWN')) {
@@ -477,22 +512,17 @@ class AudioManager {
     }
 
     if (!this.ctx) this.init();
+    this.titlePlaying = true;
+    this.titleStep = 0;
+
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().then(() => {
         if (this.musicBus) {
           this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
         }
-        const curG = window.game || window.gameInstance;
-        const isMenu = !curG || (curG.state === 'MENU' || curG.state === 'MODE_SELECT' || curG.state === 'DIFFICULTY_SELECT' || curG.state === 'TRACK_SELECT' || curG.state === 'CAR_SELECT' || curG.state === 'COLOR_SELECT' || curG.state === 'NAME_INPUT');
-        if (isMenu && !this._musicPlaying && !this.titlePlaying) {
-          this.playTitleMusic();
-        }
+        this.nextNoteTime = this.ctx.currentTime + 0.05;
       }).catch(() => {});
-      return;
-    }
-    this.titlePlaying = true;
-    this.titleStep = 0;
-    if (this.ctx && this.ctx.state === 'running') {
+    } else if (this.ctx && this.ctx.state === 'running') {
       if (this.musicBus) {
         this.musicBus.gain.setValueAtTime(this._enabled ? 0.38 : 0, this.ctx.currentTime);
       }
@@ -652,6 +682,7 @@ class AudioManager {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     this.ctx = new AudioCtx();
+    this._triggerAudioElementUnlock();
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
